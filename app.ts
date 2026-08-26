@@ -1,5 +1,6 @@
 import { resolveAppPaths } from "./src/app_paths.ts";
 import { detectSystemLocale } from "./src/browser_locale.ts";
+import { LocalDshError, type LocalDshWeb, startLocalDshWeb } from "./src/local_dsh.ts";
 import { createLogger } from "./src/logger.ts";
 import { openDirectory } from "./src/open_directory.ts";
 import { ProfileStore, type ServerProfileInput } from "./src/profiles.ts";
@@ -81,6 +82,7 @@ async function startDesktopWithShellServer(
   }
 
   let activeTunnel: SshTunnel | undefined;
+  let activeLocal: LocalDshWeb | undefined;
   let connecting = false;
   let shellBindingsActive = false;
   let shuttingDown = false;
@@ -163,6 +165,10 @@ async function startDesktopWithShellServer(
       await connectProfile(id);
       return null;
     });
+    window.bind("connectLocal", async () => {
+      await connectLocal();
+      return null;
+    });
     shellBindingsActive = true;
   }
 
@@ -173,11 +179,12 @@ async function startDesktopWithShellServer(
     window.unbind("deleteProfile");
     window.unbind("openLogDirectory");
     window.unbind("connectProfile");
+    window.unbind("connectLocal");
     shellBindingsActive = false;
   }
 
   async function connectProfile(id: unknown): Promise<void> {
-    if (connecting) throw new Error("已有 SSH 连接正在建立，请稍候");
+    if (connecting) throw new Error("已有连接正在建立，请稍候");
     if (!ssh.available) throw new Error(ssh.installHelp ?? "未找到 OpenSSH Client");
     if (typeof id !== "string") throw new Error("服务器 ID 无效");
 
@@ -185,11 +192,15 @@ async function startDesktopWithShellServer(
     if (!profile) throw new Error("服务器配置不存在或已被删除");
     connecting = true;
     try {
+      if (activeLocal) {
+        await activeLocal.stop();
+        activeLocal = undefined;
+      }
       if (activeTunnel) await activeTunnel.stop();
       const tunnel = await startSshTunnel(profile, logger);
       activeTunnel = tunnel;
 
-      // The remote page must not inherit privileged bindings from the local selector.
+      // The DSH Web page must not inherit privileged bindings from the local selector.
       unbindShell();
       try {
         window.navigate(tunnel.url);
@@ -213,6 +224,44 @@ async function startDesktopWithShellServer(
     }
   }
 
+  async function connectLocal(): Promise<void> {
+    if (connecting) throw new Error("已有连接正在建立，请稍候");
+    connecting = true;
+    try {
+      if (activeTunnel) {
+        await activeTunnel.stop();
+        activeTunnel = undefined;
+      }
+      if (activeLocal) {
+        await activeLocal.stop();
+        activeLocal = undefined;
+      }
+      const local = await startLocalDshWeb(logger);
+      activeLocal = local;
+
+      // The DSH Web page must not inherit privileged bindings from the local selector.
+      unbindShell();
+      try {
+        window.navigate(local.url);
+      } catch (error) {
+        bindShell();
+        activeLocal = undefined;
+        await local.stop();
+        throw error;
+      }
+      void observeLocal(local);
+    } catch (error) {
+      logger.error(
+        { event: "local_dsh.connect_failed", err: error },
+        "Failed to start local DSH Web",
+      );
+      if (error instanceof LocalDshError) throw error;
+      throw new Error("本地 DSH Web 启动失败，详细信息已写入日志");
+    } finally {
+      connecting = false;
+    }
+  }
+
   async function observeTunnel(tunnel: SshTunnel, profileName: string): Promise<void> {
     const exit = await tunnel.exited;
     logger[exit.stopRequested ? "info" : "warn"]({
@@ -231,13 +280,34 @@ async function startDesktopWithShellServer(
     window.navigate(shellUrl);
   }
 
+  async function observeLocal(local: LocalDshWeb): Promise<void> {
+    const exit = await local.exited;
+    logger[exit.stopRequested ? "info" : "warn"]({
+      event: "local_dsh.exited",
+      code: exit.code,
+      signal: exit.signal,
+      stopRequested: exit.stopRequested,
+    }, exit.stopRequested ? "Local DSH Web stopped" : "Local DSH Web exited unexpectedly");
+
+    if (activeLocal !== local) return;
+    activeLocal = undefined;
+    if (shuttingDown || window.isClosed()) return;
+
+    startupNotice = "本地 DSH Web 已退出，请重新启动。";
+    bindShell();
+    window.navigate(shellUrl);
+  }
+
   async function shutdown(): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
     logger.info({ event: "app.shutdown" }, "DSH Desktop is shutting down");
     const tunnel = activeTunnel;
+    const local = activeLocal;
     activeTunnel = undefined;
+    activeLocal = undefined;
     await tunnel?.stop();
+    await local?.stop();
     await shellServer.shutdown();
     releaseWindowIcon?.();
     releaseWindowIcon = undefined;

@@ -91,3 +91,62 @@ export function isCommandNotFoundError(error: unknown): boolean {
   if (error instanceof Deno.errors.NotFound) return true;
   return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
+
+export function monitorProcessStderr(
+  stream: ReadableStream<Uint8Array>,
+  onLine: (line: string) => void,
+): { done: Promise<readonly string[]> } {
+  const tail: string[] = [];
+  let privateKeyBlock = false;
+  const done = (async () => {
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    let pending = "";
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        pending += decoder.decode(value, { stream: true });
+        const lines = pending.split(/\r?\n/u);
+        pending = lines.pop() ?? "";
+        for (const line of lines) recordLine(line);
+      }
+      pending += decoder.decode();
+      if (pending) recordLine(pending);
+    } finally {
+      reader.releaseLock();
+    }
+    return tail;
+  })();
+
+  return { done };
+
+  function recordLine(raw: string): void {
+    const beginsPrivateKey = /-----BEGIN [^-\r\n]*PRIVATE KEY-----/iu.test(raw);
+    const endsPrivateKey = /-----END [^-\r\n]*PRIVATE KEY-----/iu.test(raw);
+    if (privateKeyBlock) {
+      if (endsPrivateKey) privateKeyBlock = false;
+      return;
+    }
+    if (beginsPrivateKey) {
+      privateKeyBlock = !endsPrivateKey;
+      storeLine("[REDACTED PRIVATE KEY MATERIAL]");
+      return;
+    }
+
+    const line = Array.from(raw)
+      .filter((character) => {
+        const code = character.charCodeAt(0);
+        return code === 9 || (code >= 32 && code !== 127);
+      })
+      .join("")
+      .trim();
+    if (line) storeLine(line);
+  }
+
+  function storeLine(line: string): void {
+    tail.push(line.slice(0, 2_000));
+    if (tail.length > 20) tail.shift();
+    onLine(line.slice(0, 2_000));
+  }
+}

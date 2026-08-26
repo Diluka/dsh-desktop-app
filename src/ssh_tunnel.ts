@@ -1,5 +1,11 @@
 import type { Logger } from "pino";
-import { isCommandNotFoundError, runHiddenCommand, spawnHiddenProcess } from "./hidden_process.ts";
+import {
+  isCommandNotFoundError,
+  monitorProcessStderr,
+  runHiddenCommand,
+  spawnHiddenProcess,
+} from "./hidden_process.ts";
+import { allocateLoopbackPort, probeHttp } from "./loopback_http.ts";
 import type { ServerProfile } from "./profiles.ts";
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 20_000;
@@ -194,7 +200,7 @@ async function startTunnelAttempt(
     throw error;
   }
 
-  const stderr = monitorStderr(child.stderr, (line) => {
+  const stderr = monitorProcessStderr(child.stderr, (line) => {
     logger.warn({
       event: "ssh.stderr",
       profileId: profile.id,
@@ -247,84 +253,6 @@ async function startTunnelAttempt(
 
 function spawnOpenSsh(command: string, args: string[]): ChildProcessLike {
   return spawnHiddenProcess(command, args);
-}
-
-function allocateLoopbackPort(): Promise<number> {
-  const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-  try {
-    const address = listener.addr as Deno.NetAddr;
-    return Promise.resolve(address.port);
-  } finally {
-    listener.close();
-  }
-}
-
-async function probeHttp(url: string): Promise<void> {
-  const response = await fetch(url, {
-    method: "GET",
-    redirect: "manual",
-    signal: AbortSignal.timeout(1_500),
-  });
-  await response.body?.cancel();
-}
-
-function monitorStderr(
-  stream: ReadableStream<Uint8Array>,
-  onLine: (line: string) => void,
-): { done: Promise<readonly string[]> } {
-  const tail: string[] = [];
-  let privateKeyBlock = false;
-  const done = (async () => {
-    const reader = stream.getReader();
-    const decoder = new TextDecoder();
-    let pending = "";
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        pending += decoder.decode(value, { stream: true });
-        const lines = pending.split(/\r?\n/u);
-        pending = lines.pop() ?? "";
-        for (const line of lines) recordLine(line);
-      }
-      pending += decoder.decode();
-      if (pending) recordLine(pending);
-    } finally {
-      reader.releaseLock();
-    }
-    return tail;
-  })();
-
-  return { done };
-
-  function recordLine(raw: string): void {
-    const beginsPrivateKey = /-----BEGIN [^-\r\n]*PRIVATE KEY-----/iu.test(raw);
-    const endsPrivateKey = /-----END [^-\r\n]*PRIVATE KEY-----/iu.test(raw);
-    if (privateKeyBlock) {
-      if (endsPrivateKey) privateKeyBlock = false;
-      return;
-    }
-    if (beginsPrivateKey) {
-      privateKeyBlock = !endsPrivateKey;
-      storeLine("[REDACTED PRIVATE KEY MATERIAL]");
-      return;
-    }
-
-    const line = Array.from(raw)
-      .filter((character) => {
-        const code = character.charCodeAt(0);
-        return code === 9 || (code >= 32 && code !== 127);
-      })
-      .join("")
-      .trim();
-    if (line) storeLine(line);
-  }
-
-  function storeLine(line: string): void {
-    tail.push(line.slice(0, 2_000));
-    if (tail.length > 20) tail.shift();
-    onLine(line.slice(0, 2_000));
-  }
 }
 
 function classifySshFailure(stderr: readonly string[]): TunnelError {

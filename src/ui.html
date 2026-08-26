@@ -266,6 +266,13 @@
       margin-bottom: 28px;
     }
 
+    .header-actions {
+      display: flex;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
     h2 {
       margin: 0;
       font-size: 28px;
@@ -657,8 +664,11 @@
         align-items: flex-start;
         flex-direction: column;
       }
-      .workspace-header .button {
+      .header-actions {
         width: 100%;
+      }
+      .header-actions .button {
+        flex: 1 1 100%;
       }
       .server-card {
         grid-template-columns: 1fr;
@@ -694,8 +704,8 @@
           <div class="brand-mark">deepseek</div>
           <div class="masthead-copy">
             <p class="mode-label">连接方式</p>
-            <h1>远程模式</h1>
-            <p>通过本机 OpenSSH 连接远程 DSH Web。</p>
+            <h1>本地 / 远程模式</h1>
+            <p>可直接启动本机 dsh web，或通过 OpenSSH 连接远程 DSH Web。</p>
           </div>
         </div>
         <div class="masthead-footer">
@@ -711,7 +721,7 @@
           <div class="runtime-note">
             <div
               class="runtime-row"><span>浏览器</span><strong id="browser-backend">Chromium / CEF</strong></div>
-            <div class="runtime-row"><span>连接</span><strong>OpenSSH</strong></div>
+            <div class="runtime-row"><span>连接</span><strong>dsh / OpenSSH</strong></div>
           </div>
         </div>
       </aside>
@@ -720,10 +730,13 @@
         <div class="workspace-inner">
           <header class="workspace-header">
             <div>
-              <h2>选择服务器</h2>
-              <p class="page-description">通过 SSH Host 建立安全连接。</p>
+              <h2>选择连接方式</h2>
+              <p class="page-description">本地启动 dsh web，或通过 SSH Host 建立远程连接。</p>
             </div>
-            <button id="add-server" class="button primary" type="button">添加服务器</button>
+            <div class="header-actions">
+              <button id="start-local" class="button secondary" type="button">本地模式</button>
+              <button id="add-server" class="button primary" type="button">添加服务器</button>
+            </div>
           </header>
 
           <div id="notice" class="notice" role="alert" hidden></div>
@@ -833,6 +846,7 @@
       });
       applyTheme(themePreference, false);
 
+      document.getElementById("start-local").addEventListener("click", connectLocal);
       document.getElementById("add-server").addEventListener("click", function () {
         openEditor();
       });
@@ -1023,14 +1037,40 @@
       }
 
       async function connectProfile(profile) {
-        connecting.hidden = false;
-        document.getElementById("connecting-target").textContent = "正在连接 “" + profile.name + "”";
+        showConnecting("正在连接", "正在连接 “" + profile.name + "”", [
+          "读取本机 .ssh/config",
+          "建立回环端口转发",
+          "验证远端 DSH Web",
+        ]);
         try {
           await globalThis.bindings.connectProfile(profile.id);
         } catch (error) {
           connecting.hidden = true;
           showToast(errorMessage(error));
         }
+      }
+
+      async function connectLocal() {
+        showConnecting("正在启动本地模式", "正在启动本机 dsh web...", [
+          "选择空闲本地端口",
+          "启动 dsh web",
+          "验证本地 DSH Web",
+        ]);
+        try {
+          await globalThis.bindings.connectLocal();
+        } catch (error) {
+          connecting.hidden = true;
+          alert(errorMessage(error));
+        }
+      }
+
+      function showConnecting(title, target, steps) {
+        document.getElementById("connecting-title").textContent = title;
+        document.getElementById("connecting-target").textContent = target;
+        Array.from(document.querySelectorAll(".connecting-steps li")).forEach(function (item, index) {
+          item.textContent = steps[index] || "";
+        });
+        connecting.hidden = false;
       }
 
       function showNotice(message) {
