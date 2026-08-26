@@ -67,16 +67,16 @@ jobs:
             package_task: package:windows
             artifact_name: dsh-desktop-windows-x86_64
             artifact_path: dist/windows/DSH-Desktop-windows-x86_64.zip
-          - name: macOS arm64
-            os: macos-14
+          - name: macOS arm64 (cross-build)
+            os: ubuntu-24.04
             package_task: package:macos:aarch64
             artifact_name: dsh-desktop-macos-arm64
-            artifact_path: dist/macos/DSH-Desktop-aarch64.dmg
-          - name: macOS x86_64
-            os: macos-15-intel
+            artifact_path: dist/macos/DSH-Desktop-macos-aarch64.tar.gz
+          - name: macOS x86_64 (cross-build)
+            os: ubuntu-24.04
             package_task: package:macos:x86_64
             artifact_name: dsh-desktop-macos-x86_64
-            artifact_path: dist/macos/DSH-Desktop-x86_64.dmg
+            artifact_path: dist/macos/DSH-Desktop-macos-x86_64.tar.gz
 
     steps:
       - name: Check out repository
@@ -126,8 +126,8 @@ jobs:
         run: |
           set -euo pipefail
           test -s release-assets/DSH-Desktop-windows-x86_64.zip
-          test -s release-assets/DSH-Desktop-aarch64.dmg
-          test -s release-assets/DSH-Desktop-x86_64.dmg
+          test -s release-assets/DSH-Desktop-macos-aarch64.tar.gz
+          test -s release-assets/DSH-Desktop-macos-x86_64.tar.gz
           ls -lh release-assets
 
       - name: Create or replace latest release
@@ -144,8 +144,8 @@ jobs:
 
           assets=(
             release-assets/DSH-Desktop-windows-x86_64.zip
-            release-assets/DSH-Desktop-aarch64.dmg
-            release-assets/DSH-Desktop-x86_64.dmg
+            release-assets/DSH-Desktop-macos-aarch64.tar.gz
+            release-assets/DSH-Desktop-macos-x86_64.tar.gz
           )
           cat > release-notes.md <<EOF
           This rolling release was built from commit \`${GITHUB_SHA}\`.
@@ -158,7 +158,7 @@ jobs:
 
           if gh release view latest >/dev/null 2>&1; then
             existing_assets=$(gh release view latest --json assets --jq '.assets[].name')
-            for stale_asset in DSH-Desktop.AppImage DSH-Desktop.msi DSH-Desktop-Setup.exe; do
+            for stale_asset in DSH-Desktop.AppImage DSH-Desktop.msi DSH-Desktop-Setup.exe DSH-Desktop-aarch64.dmg DSH-Desktop-x86_64.dmg; do
               if grep -Fxq "${stale_asset}" <<<"${existing_assets}"; then
                 gh release delete-asset latest "${stale_asset}" --yes
               fi

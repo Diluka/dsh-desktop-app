@@ -75,8 +75,8 @@ deno task build:macos:x86_64
 # 便于分发的产物
 deno task package:linux          # AppImage
 deno task package:windows        # 完整目录 ZIP
-deno task package:macos:aarch64  # Apple Silicon DMG
-deno task package:macos:x86_64   # Intel DMG
+deno task package:macos:aarch64  # Apple Silicon .app tar.gz
+deno task package:macos:x86_64   # Intel .app tar.gz
 ```
 
 目录包输出到：
@@ -86,9 +86,9 @@ deno task package:macos:x86_64   # Intel DMG
 - macOS arm64：`dist/macos/aarch64/DSH-Desktop.app`
 - macOS x86_64：`dist/macos/x86_64/DSH-Desktop.app`
 
-Deno 会按目标平台下载并校验对应的 CEF 后端，因此首次构建较慢且产物体积较大。目录包可以交叉构建；DMG
-依赖 macOS 的 `hdiutil`，由对应的 GitHub macOS runner 原生生成。Windows 构建会使用固定版本的
-`resedit` 把 ICO 写入 launcher 的 PE 资源，因为 Deno 2.9 的 `--icon` 只复制旁置
+Deno 会按目标平台下载并校验对应的 CEF 后端，因此首次构建较慢且产物体积较大。Windows ZIP 与两个 macOS
+`.app` tar.gz 均在 Linux 交叉编译打包；目标系统 CI 只运行源码检查和单元测试。Windows
+构建会使用固定版本的 `resedit` 把 ICO 写入 launcher 的 PE 资源，因为 Deno 2.9 的 `--icon` 只复制旁置
 `AppIcon.ico`。Windows 发布产物是完整应用目录
 ZIP，无需安装或管理员权限；关闭应用后用新目录覆盖即可更新。GUI 行为仍需在目标系统验证。
 
@@ -164,7 +164,8 @@ docs/               GUI 验证说明
 ## 已知限制
 
 - 本地模式尚未实现。
-- macOS 已纳入 CI 构建，但真实 GUI 行为仍等待实机验证；DMG 当前使用 ad-hoc 签名。
+- macOS `.app` 由 Linux 交叉构建，未进行 Apple Developer ID 签名或 notarization；真实 GUI
+  行为仍等待实机验证。
 - SSH 密码与私钥 passphrase 不提供应用内交互，请通过 `ssh-agent`
   解锁密钥，或配置专用的非交互认证方式。
 - 断线后会返回服务器选择页，目前不自动重连。

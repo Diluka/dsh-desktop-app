@@ -74,14 +74,15 @@ deno task build:macos:x86_64
 open ./dist/macos/x86_64/DSH-Desktop.app
 ```
 
-DMG 由 macOS 主机构建：
+macOS 分发包在 Linux 交叉构建为完整 `.app` tar.gz：
 
 ```bash
 deno task package:macos:aarch64
 deno task package:macos:x86_64
 ```
 
-当前 DMG 使用 ad-hoc 签名，首次测试可能需要在 Finder 中右键选择“打开”。实时查看日志：
+解压对应的 `dist/macos/DSH-Desktop-macos-*.tar.gz` 后运行完整 `.app`。产物未进行 Apple Developer ID
+签名或 notarization，首次测试可能需要在 Finder 中右键选择“打开”。实时查看日志：
 
 ```bash
 tail -f "$HOME/Library/Logs/dsh-desktop/dsh-desktop-$(date +%F).jsonl"
@@ -183,7 +184,7 @@ tail -f "$HOME/Library/Logs/dsh-desktop/dsh-desktop-$(date +%F).jsonl"
 ```text
 OS / 版本：
 构建命令：
-运行产物：目录包 / ZIP / DMG
+运行产物：目录包 / ZIP / tar.gz
 通过场景：1, 2, ...
 失败场景：
 复现步骤：
