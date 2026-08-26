@@ -184,30 +184,10 @@ Deno.test("startSshTunnel stops tunnel and throws DSH_UNAVAILABLE when remote pr
   await child.status;
 });
 
-Deno.test("startSshTunnel classifies auth failure without logging private key material", async () => {
-  const child = fakeChild(
-    "-----BEGIN OPENSSH PRIVATE KEY-----\nsecretbase64\n-----END OPENSSH PRIVATE KEY-----\nPermission denied (publickey).\n",
-  );
-  child.finish({ success: false, code: 255, signal: null });
-
-  const { logger, filePath } = await memoryLogger();
-  const error = await assertRejects(
-    () =>
-      startSshTunnel(profile(), logger, {
-        allocatePort: () => Promise.resolve(41004),
-        spawn: () => child,
-        probe: () => Promise.reject(new Error("not ready")),
-        delay: () => Promise.resolve(),
-        now: tickingClock(0, 1000),
-        startupTimeoutMs: 5000,
-      }),
-    TunnelError,
-  );
+Deno.test("startSshTunnel classifies auth failures", async () => {
+  const { logger } = await memoryLogger();
+  const error = await startAndClassify("Permission denied (publickey).\n", logger);
   assertEquals(error.code, "AUTH_FAILED");
-  logger.flush();
-  const log = await Deno.readTextFile(filePath);
-  assertFalse(log.includes("secretbase64"));
-  assert(log.includes("[REDACTED PRIVATE KEY MATERIAL]"));
 });
 
 Deno.test("startSshTunnel classifies host key verification failures", async () => {

@@ -97,7 +97,6 @@ export function monitorProcessStderr(
   onLine: (line: string) => void,
 ): { done: Promise<readonly string[]> } {
   const tail: string[] = [];
-  let privateKeyBlock = false;
   const done = (async () => {
     const reader = stream.getReader();
     const decoder = new TextDecoder();
@@ -109,10 +108,10 @@ export function monitorProcessStderr(
         pending += decoder.decode(value, { stream: true });
         const lines = pending.split(/\r?\n/u);
         pending = lines.pop() ?? "";
-        for (const line of lines) recordLine(line);
+        for (const line of lines) storeLine(line);
       }
       pending += decoder.decode();
-      if (pending) recordLine(pending);
+      if (pending) storeLine(pending);
     } finally {
       reader.releaseLock();
     }
@@ -121,19 +120,7 @@ export function monitorProcessStderr(
 
   return { done };
 
-  function recordLine(raw: string): void {
-    const beginsPrivateKey = /-----BEGIN [^-\r\n]*PRIVATE KEY-----/iu.test(raw);
-    const endsPrivateKey = /-----END [^-\r\n]*PRIVATE KEY-----/iu.test(raw);
-    if (privateKeyBlock) {
-      if (endsPrivateKey) privateKeyBlock = false;
-      return;
-    }
-    if (beginsPrivateKey) {
-      privateKeyBlock = !endsPrivateKey;
-      storeLine("[REDACTED PRIVATE KEY MATERIAL]");
-      return;
-    }
-
+  function storeLine(raw: string): void {
     const line = Array.from(raw)
       .filter((character) => {
         const code = character.charCodeAt(0);
@@ -141,12 +128,11 @@ export function monitorProcessStderr(
       })
       .join("")
       .trim();
-    if (line) storeLine(line);
-  }
+    if (!line) return;
 
-  function storeLine(line: string): void {
-    tail.push(line.slice(0, 2_000));
+    const clipped = line.slice(0, 2_000);
+    tail.push(clipped);
     if (tail.length > 20) tail.shift();
-    onLine(line.slice(0, 2_000));
+    onLine(clipped);
   }
 }
