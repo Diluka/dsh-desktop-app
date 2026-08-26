@@ -165,6 +165,7 @@ jobs:
             git tag --force latest "${GITHUB_SHA}"
             git push origin refs/tags/latest --force
             gh release edit latest \
+              --target "${GITHUB_SHA}" \
               --title "DSH Desktop - Latest Successful Build" \
               --notes-file release-notes.md \
               --latest
