@@ -1,5 +1,7 @@
 # DSH Desktop
 
+[![CI](https://github.com/Diluka/dsh-desktop-app/actions/workflows/ci.yml/badge.svg)](https://github.com/Diluka/dsh-desktop-app/actions/workflows/ci.yml)
+
 DSH 的 Windows/Linux 桌面入口。首版提供远程模式：选择服务器后，应用调用本机 OpenSSH Client
 建立本地端口转发，再用内置 Chromium（CEF）打开远端 DSH Web。
 

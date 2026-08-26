@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DENO_NO_UPDATE_CHECK: "1"
+
+jobs:
+  platform:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86_64
+            os: ubuntu-24.04
+            package_task: package:linux
+            artifact_name: dsh-desktop-linux-x86_64
+            artifact_path: dist/linux/DSH-Desktop.AppImage
+          - name: Windows x86_64
+            os: windows-2022
+            package_task: package:windows
+            artifact_name: dsh-desktop-windows-x86_64
+            artifact_path: dist/windows/DSH-Desktop.msi
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Install Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.9.5
+
+      - name: Show tool versions
+        run: |
+          deno --version
+          ssh -V
+
+      - name: Run source checks and unit tests
+        run: deno task check
+
+      - name: Build native desktop installer
+        if: github.event_name != 'pull_request'
+        run: deno task ${{ matrix.package_task }}
+
+      - name: Upload desktop installer
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_path }}
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0

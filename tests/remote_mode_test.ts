@@ -1,4 +1,4 @@
-import { basename } from "node:path";
+import { basename, join } from "node:path";
 import { resolveAppPaths } from "../src/app_paths.ts";
 import { errorContext, JsonlLogger } from "../src/logger.ts";
 import { DEFAULT_REMOTE_PORT, ProfileStore, ProfileValidationError } from "../src/profiles.ts";
@@ -11,7 +11,7 @@ function env(values: Record<string, string | undefined>): (name: string) => stri
 
 async function tempFile(name: string): Promise<string> {
   const directory = await Deno.makeTempDir();
-  return `${directory}/${name}`;
+  return join(directory, name);
 }
 
 function assert(
@@ -81,10 +81,12 @@ Deno.test("resolveAppPaths uses platform-specific config and state roots", () =>
       LOCALAPPDATA: "C:\\Users\\Alice\\AppData\\Local",
     }),
   );
-  assert(windows.configFile.endsWith("dsh-desktop/servers.json"));
-  assert(windows.logDirectory.endsWith("dsh-desktop/logs"));
-  assert(windows.configFile.includes("AppData"));
-  assert(windows.logDirectory.includes("Local"));
+  const windowsConfigFile = windows.configFile.replaceAll("\\", "/");
+  const windowsLogDirectory = windows.logDirectory.replaceAll("\\", "/");
+  assert(windowsConfigFile.endsWith("dsh-desktop/servers.json"));
+  assert(windowsLogDirectory.endsWith("dsh-desktop/logs"));
+  assert(windowsConfigFile.includes("AppData"));
+  assert(windowsLogDirectory.includes("Local"));
 });
 
 Deno.test("ProfileStore defaults port, validates input, persists and deletes", async () => {
