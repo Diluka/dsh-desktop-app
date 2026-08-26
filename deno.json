@@ -1,0 +1,58 @@
+{
+  "name": "dsh-desktop",
+  "version": "0.1.0",
+  "exports": "./main.ts",
+  "tasks": {
+    "dev": "deno desktop --hmr --permission-set=app main.ts",
+    "fmt": "deno fmt",
+    "lint": "deno lint",
+    "typecheck": "deno check --desktop main.ts",
+    "test": "deno test --permit-no-files --permission-set=app",
+    "check": "deno fmt --check && deno lint && deno check --desktop main.ts && deno test --permit-no-files --permission-set=app",
+    "build:linux": "deno desktop --permission-set=app --target x86_64-unknown-linux-gnu --output dist/linux/dsh-desktop main.ts",
+    "build:windows": "deno desktop --permission-set=app --target x86_64-pc-windows-msvc --output dist/windows/DshDesktop main.ts"
+  },
+  "permissions": {
+    "app": {
+      "env": [
+        "APPDATA",
+        "HOME",
+        "LOCALAPPDATA",
+        "USERPROFILE",
+        "XDG_CONFIG_HOME",
+        "XDG_STATE_HOME"
+      ],
+      "read": true,
+      "write": true,
+      "run": true,
+      "net": [
+        "127.0.0.1",
+        "[::1]"
+      ]
+    }
+  },
+  "desktop": {
+    "app": {
+      "name": "DSH Desktop",
+      "identifier": "ai.deepseek.dsh.desktop"
+    },
+    "backend": "cef",
+    "output": {
+      "windows": "./dist/windows/DshDesktop",
+      "linux": "./dist/linux/dsh-desktop"
+    }
+  },
+  "exclude": [
+    "dist/"
+  ],
+  "fmt": {
+    "lineWidth": 100
+  },
+  "lint": {
+    "rules": {
+      "tags": [
+        "recommended"
+      ]
+    }
+  }
+}
