@@ -102,7 +102,7 @@ Linux 构建和 AppImage 任务继续保留给源码用户自行执行；CI 与 
 
 ## 日志
 
-每次运行使用一个 `sessionId`，日志按天写入 JSONL：
+每次运行使用一个 `sessionId`，日志按天写入 JSONL。服务器选择页可直接打开日志目录：
 
 - Linux：`$XDG_STATE_HOME/dsh-desktop/logs/`，未设置时为 `~/.local/state/dsh-desktop/logs/`
 - Windows：`%LOCALAPPDATA%\dsh-desktop\logs\`
@@ -145,6 +145,7 @@ assets/             SVG 源图、1024px PNG、Windows ICO 与 macOS ICNS
 src/profiles.ts     服务器配置校验和持久化
 src/ssh_tunnel.ts   OpenSSH 探测、隧道和错误分类
 src/hidden_process.ts Windows 隐藏进程与安全生命周期适配
+src/open_directory.ts 系统文件管理器调用
 src/browser_locale.ts 运行时系统 locale 检测
 src/logger.ts       Pino 文件日志配置与脱敏
 src/ui.ts           本地服务器选择页

@@ -1,6 +1,7 @@
 import { resolveAppPaths } from "./src/app_paths.ts";
 import { detectSystemLocale } from "./src/browser_locale.ts";
 import { createLogger } from "./src/logger.ts";
+import { openDirectory } from "./src/open_directory.ts";
 import { ProfileStore } from "./src/profiles.ts";
 import { probeOpenSsh, SshTunnel, startSshTunnel, TunnelError } from "./src/ssh_tunnel.ts";
 import { handleShellRequest } from "./src/ui.ts";
@@ -99,6 +100,20 @@ function bindShell(): void {
     }
     return deleted;
   });
+  window.bind("openLogDirectory", async () => {
+    try {
+      await openDirectory(paths.logDirectory);
+      logger.info({ event: "logs.directory_opened" }, "Opened the log directory");
+      return null;
+    } catch (error) {
+      logger.error(
+        { event: "logs.directory_open_failed", err: error },
+        "Failed to open the log directory",
+      );
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`无法打开日志目录：${detail}`);
+    }
+  });
   window.bind("connectProfile", async (id: unknown) => {
     await connectProfile(id);
     return null;
@@ -111,6 +126,7 @@ function unbindShell(): void {
   window.unbind("bootstrap");
   window.unbind("saveProfile");
   window.unbind("deleteProfile");
+  window.unbind("openLogDirectory");
   window.unbind("connectProfile");
   shellBindingsActive = false;
 }

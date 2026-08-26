@@ -158,7 +158,13 @@ tail -f "$HOME/Library/Logs/dsh-desktop/dsh-desktop-$(date +%F).jsonl"
 3. 确认 `app.start.systemLocale` 是运行机器检测到的 locale；该字段只用于诊断，不控制 DSH 界面语言。
 4. locale 检测失败时该字段缺席，应用仍应正常启动。
 
-### 9. Windows 隐藏 OpenSSH 窗口
+### 9. 打开日志目录
+
+在服务器选择页点击“打开目录”，确认 Windows Explorer、macOS Finder 或 Linux
+默认文件管理器打开当前日志目录。 成功时日志包含 `logs.directory_opened`。Linux 缺少 `xdg-open`
+或系统命令失败时，页面必须弹窗提示且日志包含 `logs.directory_open_failed`。
+
+### 10. Windows 隐藏 OpenSSH 窗口
 
 在 Windows 上分别观察应用启动时的 `ssh -V` 探测和点击“连接”后的长连接过程。
 

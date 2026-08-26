@@ -325,6 +325,8 @@ export const SHELL_HTML = `<!doctype html>
         font-size: 11px;
         line-height: 18px;
       }
+      .diagnostics-row { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 6px; }
+      .diagnostics .text-button { padding: 2px 6px; font-size: 11px; line-height: 18px; }
 
       .toast {
         position: fixed;
@@ -492,7 +494,10 @@ export const SHELL_HTML = `<!doctype html>
           </section>
 
           <footer class="diagnostics">
-            <div>日志目录：<code id="log-directory" class="log-path">正在初始化...</code></div>
+            <div class="diagnostics-row">
+              <span>日志目录：<code id="log-directory" class="log-path">正在初始化...</code></span>
+              <button id="open-log-directory" class="text-button" type="button">打开目录</button>
+            </div>
             <div>认证使用 <code>.ssh/config</code>、密钥或 <code>ssh-agent</code>；应用不处理密码。</div>
           </footer>
         </div>
@@ -535,6 +540,7 @@ export const SHELL_HTML = `<!doctype html>
         document.getElementById("empty-add").addEventListener("click", function () { openEditor(); });
         document.getElementById("close-editor").addEventListener("click", closeEditor);
         document.getElementById("cancel-editor").addEventListener("click", closeEditor);
+        document.getElementById("open-log-directory").addEventListener("click", openLogDirectory);
         form.addEventListener("submit", saveProfile);
 
         bootstrap();
@@ -631,6 +637,18 @@ export const SHELL_HTML = `<!doctype html>
           form.reset();
           form.elements.remotePort.value = "3080";
           editor.hidden = true;
+        }
+
+        async function openLogDirectory() {
+          var button = document.getElementById("open-log-directory");
+          button.disabled = true;
+          try {
+            await globalThis.bindings.openLogDirectory();
+          } catch (error) {
+            alert(errorMessage(error));
+          } finally {
+            button.disabled = false;
+          }
         }
 
         async function saveProfile(event) {

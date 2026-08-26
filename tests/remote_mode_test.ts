@@ -10,6 +10,7 @@ import { basename, join } from "node:path";
 import { resolveAppPaths } from "../src/app_paths.ts";
 import { canonicalSystemLocale, detectSystemLocale } from "../src/browser_locale.ts";
 import { createLogger } from "../src/logger.ts";
+import { directoryOpenCommand } from "../src/open_directory.ts";
 import { DEFAULT_REMOTE_PORT, ProfileStore, ProfileValidationError } from "../src/profiles.ts";
 import { buildSshArguments, probeOpenSsh, startSshTunnel, TunnelError } from "../src/ssh_tunnel.ts";
 import { handleShellRequest, SHELL_HTML } from "../src/ui.ts";
@@ -69,6 +70,21 @@ Deno.test("system locale normalization uses runtime values", () => {
   assertEquals(canonicalSystemLocale("not a locale"), undefined);
   const detected = detectSystemLocale();
   if (detected) assertEquals(canonicalSystemLocale(detected), detected);
+});
+
+Deno.test("directoryOpenCommand uses each platform's standard file manager", () => {
+  assertEquals(directoryOpenCommand("windows", "C:\\logs"), {
+    command: "explorer.exe",
+    args: ["C:\\logs"],
+  });
+  assertEquals(directoryOpenCommand("darwin", "/Users/alice/Logs"), {
+    command: "open",
+    args: ["/Users/alice/Logs"],
+  });
+  assertEquals(directoryOpenCommand("linux", "/home/alice/logs"), {
+    command: "xdg-open",
+    args: ["/home/alice/logs"],
+  });
 });
 
 Deno.test("ProfileStore defaults port, validates input, persists and deletes", async () => {
@@ -282,6 +298,8 @@ Deno.test("handleShellRequest serves safe shell responses without local tunnel i
     404,
   );
 
+  assert(SHELL_HTML.includes('id="open-log-directory"'));
+  assert(SHELL_HTML.includes("bindings.openLogDirectory()"));
   assertFalse(SHELL_HTML.includes("http://127.0.0.1:"));
   assertFalse(SHELL_HTML.includes("localhost:"));
   assertFalse(SHELL_HTML.includes("localPort"));
