@@ -2,13 +2,18 @@
   "name": "dsh-desktop",
   "version": "0.1.0",
   "exports": "./main.ts",
+  "compilerOptions": {
+    "lib": [
+      "deno.desktop"
+    ]
+  },
   "tasks": {
     "dev": "deno desktop --hmr --permission-set=app main.ts",
     "fmt": "deno fmt",
     "lint": "deno lint",
-    "typecheck": "deno check --desktop main.ts",
+    "typecheck": "deno check main.ts",
     "test": "deno test --permit-no-files --permission-set=app",
-    "check": "deno fmt --check && deno lint && deno check --desktop main.ts && deno test --permit-no-files --permission-set=app",
+    "check": "deno fmt --check && deno lint && deno check main.ts && deno test --permit-no-files --permission-set=app",
     "build:linux": "deno desktop --permission-set=app --target x86_64-unknown-linux-gnu --icon assets/icon.png --output dist/linux/DSH-Desktop main.ts",
     "build:windows": "deno desktop --permission-set=app --target x86_64-pc-windows-msvc --icon assets/icon.ico --output dist/windows/DSH-Desktop main.ts",
     "build:macos:aarch64": "deno desktop --permission-set=app --target aarch64-apple-darwin --icon assets/icon.icns --output dist/macos/aarch64/DSH-Desktop.app main.ts",
