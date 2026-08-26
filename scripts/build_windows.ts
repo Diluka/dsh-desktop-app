@@ -7,11 +7,13 @@ const backend = parseBackend(Deno.args);
 const variant = backend === "cef" ? "CEF" : "WebView";
 const appName = `DSH-Desktop-${variant}`;
 const appDirectory = join(root, "dist", "windows", appName);
-const executable = join(appDirectory, `${appName}.exe`);
+const executable = join(appDirectory, "DSH-Desktop.exe");
+const runtimeLibrary = join(appDirectory, "DSH-Desktop.dll");
 const icon = join(root, "assets", "icon.ico");
 const packageRequested = Deno.args.includes("--package");
 
 await runDesktop();
+await normalizeBundleNames();
 await embedIcon(executable, icon);
 if (packageRequested) await buildArchive();
 
@@ -54,6 +56,11 @@ async function runDesktop(): Promise<void> {
   });
   const status = await command.spawn().status;
   if (!status.success) throw new Error(`deno desktop failed with exit code ${status.code}`);
+}
+
+async function normalizeBundleNames(): Promise<void> {
+  await Deno.rename(join(appDirectory, `${appName}.exe`), executable);
+  await Deno.rename(join(appDirectory, `${appName}.dll`), runtimeLibrary);
 }
 
 async function embedIcon(executablePath: string, iconPath: string): Promise<void> {

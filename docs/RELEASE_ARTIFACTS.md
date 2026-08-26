@@ -16,7 +16,7 @@
 CEF ZIP 包含 Chromium 运行库，因此目录较大，渲染内核不依赖系统 Edge 版本。
 
 1. 完整解压 ZIP。
-2. 运行目录中的 `DSH-Desktop-CEF.exe`。
+2. 运行目录中的 `DSH-Desktop.exe`。
 3. 更新时关闭应用，再用新版 CEF 完整目录替换旧目录。
 
 ## Windows WebView2
@@ -25,7 +25,7 @@ WebView2 ZIP 使用系统安装的 Microsoft Edge WebView2 Runtime，因此目�
 通常已随 Edge 或系统组件安装该 Runtime；缺失时需先安装 Microsoft Edge WebView2 Evergreen Runtime。
 
 1. 完整解压 ZIP。
-2. 运行目录中的 `DSH-Desktop-WebView.exe`。
+2. 运行目录中的 `DSH-Desktop.exe`。
 3. 更新时关闭应用，再用新版 WebView2 完整目录替换旧目录。
 
 两个 Windows 版本共享服务器配置和日志目录，可在同一台机器上分别测试。两者都依赖系统 OpenSSH

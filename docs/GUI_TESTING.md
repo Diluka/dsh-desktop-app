@@ -180,7 +180,7 @@ tail -f "$(ls -t "$log_dir"/dsh-desktop-*.jsonl | head -n 1)"
 
 ### 11. Windows 应用图标
 
-解压 Windows ZIP 后分别检查 `DSH-Desktop-CEF.exe`、`DSH-Desktop-WebView.exe`、运行窗口和任务栏。
+解压两个 Windows ZIP 后分别检查各自目录内的 `DSH-Desktop.exe`、运行窗口和任务栏。
 预期均显示项目鱼形图标，而不是 Windows 或浏览器默认图标；若任务栏保留旧缓存，先取消固定再重新固定后
 复查。关闭应用后用新 ZIP 的完整目录覆盖旧目录， 确认应用可正常启动且服务器配置仍保留。
 
