@@ -9,9 +9,27 @@ import { setWindowsWindowIcon } from "./src/windows_window_icon.ts";
 
 export type DesktopBackend = "cef" | "webview";
 
+interface ShellServer {
+  readonly addr: Deno.NetAddr;
+  shutdown(): Promise<void>;
+}
+
 export async function startDesktop(backend: DesktopBackend): Promise<void> {
+  const shellServer = Deno.serve({ hostname: "127.0.0.1", port: 0 }, handleShellRequest);
+  try {
+    await startDesktopWithShellServer(backend, shellServer);
+  } catch (error) {
+    await shellServer.shutdown();
+    throw error;
+  }
+}
+
+async function startDesktopWithShellServer(
+  backend: DesktopBackend,
+  shellServer: ShellServer,
+): Promise<void> {
   const systemLocale = detectSystemLocale();
-  Deno.serve({ hostname: "127.0.0.1" }, handleShellRequest);
+  const shellUrl = resolveShellUrl(shellServer.addr);
   const paths = resolveAppPaths();
   const logger = await createLogger(paths.logDirectory);
   logger.info({
@@ -40,7 +58,6 @@ export async function startDesktop(backend: DesktopBackend): Promise<void> {
     version: ssh.version ?? "unknown",
   }, ssh.available ? "OpenSSH Client is available" : "OpenSSH Client is unavailable");
 
-  const shellUrl = resolveShellUrl();
   const iconLookupTitle = Deno.build.os === "windows" ? `DSH Desktop ${Deno.pid}` : "DSH Desktop";
   const window = backend === "webview"
     ? new Deno.BrowserWindow()
@@ -221,6 +238,7 @@ export async function startDesktop(backend: DesktopBackend): Promise<void> {
     const tunnel = activeTunnel;
     activeTunnel = undefined;
     await tunnel?.stop();
+    await shellServer.shutdown();
     releaseWindowIcon?.();
     releaseWindowIcon = undefined;
     logger.info({ event: "app.stopped" }, "DSH Desktop stopped cleanly");
@@ -228,13 +246,8 @@ export async function startDesktop(backend: DesktopBackend): Promise<void> {
     closeAllowed = true;
     if (!window.isClosed()) window.close();
   }
+}
 
-  function resolveShellUrl(): string {
-    const address = Deno.env.get("DENO_SERVE_ADDRESS");
-    const port = address?.split(":").at(-1);
-    if (!port || !/^\d+$/u.test(port)) {
-      throw new Error("Deno Desktop did not provide a local serving address");
-    }
-    return `http://127.0.0.1:${port}/`;
-  }
+function resolveShellUrl(address: Deno.NetAddr): string {
+  return `http://127.0.0.1:${address.port}/`;
 }
