@@ -170,6 +170,12 @@ tail -f "$HOME/Library/Logs/dsh-desktop/dsh-desktop-$(date +%F).jsonl"
 
 预期全程不出现 `cmd.exe`/控制台闪窗；连接、错误提示、日志和关闭时的 SSH 清理行为保持不变。
 
+### 11. Windows 应用图标
+
+安装 MSI 后检查安装目录中的
+`DSH-Desktop.exe`、开始菜单快捷方式、运行窗口和任务栏。预期均显示项目鱼形图标， 而不是 Windows
+默认可执行文件图标；若任务栏保留旧缓存，先取消固定再重新固定后复查。
+
 ## 回报模板
 
 请为每个平台提供：

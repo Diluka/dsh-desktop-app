@@ -87,7 +87,9 @@ deno task package:macos:x86_64   # Intel DMG
 - macOS x86_64：`dist/macos/x86_64/DSH-Desktop.app`
 
 Deno 会按目标平台下载并校验对应的 CEF 后端，因此首次构建较慢且产物体积较大。目录包可以交叉构建；DMG
-依赖 macOS 的 `hdiutil`，由对应的 GitHub macOS runner 原生生成。GUI 行为仍需在目标系统验证。
+依赖 macOS 的 `hdiutil`，由对应的 GitHub macOS runner 原生生成。Windows 构建会使用固定版本的
+`resedit` 把 ICO 写入 launcher 的 PE 资源，因为 Deno 2.9 的 `--icon` 只复制旁置 `AppIcon.ico`。GUI
+行为仍需在目标系统验证。
 
 Linux 构建和 AppImage 任务继续保留给源码用户自行执行；CI 与 `latest` Release 不提供 Linux 预构建包。
 
@@ -142,6 +144,7 @@ password、passphrase、token、Bearer 凭据和私钥标记做持久化前脱�
 ```text
 main.ts             桌面生命周期、bindings 与安全导航
 assets/             SVG 源图、1024px PNG、Windows ICO 与 macOS ICNS
+scripts/            平台打包辅助脚本
 src/profiles.ts     服务器配置校验和持久化
 src/ssh_tunnel.ts   OpenSSH 探测、隧道和错误分类
 src/hidden_process.ts Windows 隐藏进程与安全生命周期适配
