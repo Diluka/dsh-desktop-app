@@ -2,12 +2,12 @@
 
 [![CI](https://github.com/Diluka/dsh-desktop-app/actions/workflows/ci.yml/badge.svg)](https://github.com/Diluka/dsh-desktop-app/actions/workflows/ci.yml)
 
-DSH 的 Windows/Linux 桌面入口。首版提供远程模式：选择服务器后，应用调用本机 OpenSSH Client
+DSH 的 Windows、Linux 与 macOS 桌面入口。首版提供远程模式：选择服务器后，应用调用本机 OpenSSH Client
 建立本地端口转发，再用内置 Chromium（CEF）打开远端 DSH Web。
 
 > [!IMPORTANT]
 > `deno desktop` 从 Deno 2.9 开始提供，目前仍标记为 experimental。项目固定使用 `cef` 后端，以换取
-> Windows/Linux 一致的 Chromium 渲染行为。
+> Windows、Linux 与 macOS 一致的 Chromium 渲染行为。
 
 ## 当前范围
 
@@ -16,7 +16,8 @@ DSH 的 Windows/Linux 桌面入口。首版提供远程模式：选择服务器�
 - 本地转发只绑定 `127.0.0.1`，空闲端口由应用自动选择。
 - SSH 成功后移除选择页的本地 bindings，再导航到 DSH Web。
 - JSONL 文件记录启动、配置、OpenSSH、隧道和退出生命周期。
-- 支持 Windows x86_64 与 Linux x86_64 构建；本地模式和 macOS 留到后续版本。
+- Windows/macOS 在窗口创建前读取运行机器的系统 locale；读取失败时不传语言参数。
+- 支持 Windows x86_64、Linux x86_64、macOS arm64 与 macOS x86_64 构建。
 
 首版认证使用密钥或 `ssh-agent`，不在应用内接收或保存 SSH 密码、私钥内容和 passphrase。
 
@@ -25,7 +26,7 @@ DSH 的 Windows/Linux 桌面入口。首版提供远程模式：选择服务器�
 开发与构建需要：
 
 - [Deno 2.9+](https://docs.deno.com/runtime/desktop/)
-- Windows 10/11 或现代 x86_64 Linux
+- Windows 10/11、现代 x86_64 Linux，或 Intel/Apple Silicon macOS
 - PATH 中可用的 OpenSSH Client（`ssh -V`）
 - 远端机器上已启动的 DSH Web
 
@@ -68,19 +69,25 @@ deno task dev
 # 可直接运行的目录包
 deno task build:linux
 deno task build:windows
+deno task build:macos:aarch64
+deno task build:macos:x86_64
 
 # 便于分发的安装包
-deno task package:linux    # AppImage
-deno task package:windows  # MSI
+deno task package:linux          # AppImage
+deno task package:windows        # MSI
+deno task package:macos:aarch64  # Apple Silicon DMG
+deno task package:macos:x86_64   # Intel DMG
 ```
 
 目录包输出到：
 
 - Linux：`dist/linux/DSH-Desktop/`
 - Windows：`dist/windows/DSH-Desktop/`
+- macOS arm64：`dist/macos/aarch64/DSH-Desktop.app`
+- macOS x86_64：`dist/macos/x86_64/DSH-Desktop.app`
 
-Deno 会按目标平台下载并校验对应的 CEF 后端，因此首次构建较慢且产物体积较大。Windows 与 Linux
-可以互相交叉构建；GUI 行为仍需在目标系统验证。
+Deno 会按目标平台下载并校验对应的 CEF 后端，因此首次构建较慢且产物体积较大。目录包可以交叉构建；DMG
+依赖 macOS 的 `hdiutil`，由对应的 GitHub macOS runner 原生生成。GUI 行为仍需在目标系统验证。
 
 ## 日志
 
@@ -88,6 +95,7 @@ Deno 会按目标平台下载并校验对应的 CEF 后端，因此首次构建�
 
 - Linux：`$XDG_STATE_HOME/dsh-desktop/logs/`，未设置时为 `~/.local/state/dsh-desktop/logs/`
 - Windows：`%LOCALAPPDATA%\dsh-desktop\logs\`
+- macOS：`~/Library/Logs/dsh-desktop/`
 
 正常连接的主要事件顺序：
 
@@ -110,10 +118,11 @@ password、passphrase、token、Bearer 凭据和私钥标记做持久化前脱�
 
 ## 安全边界
 
-- SSH 通过 `Deno.Command` 参数数组启动，不经过 shell 拼接。
+- SSH 通过 `child_process.spawn` 参数数组启动，不经过 shell；Windows 使用 `windowsHide: true`。
 - 转发固定为 `127.0.0.1:<自动端口> -> 127.0.0.1:<远端 DSH 端口>`。
 - `BatchMode=yes` 防止无界面的密码提示卡住应用。
 - 主机密钥校验沿用用户 `.ssh/config` 与 OpenSSH 默认策略，应用不会降低现有策略。
+- locale 自重启与完整继承 OpenSSH 环境需要运行时 `run/env` 权限；代码只启动自身和 `ssh`。
 - 远端 DSH 页面加载前会移除配置、删除和连接 bindings。
 
 ## 项目结构
@@ -122,9 +131,11 @@ password、passphrase、token、Bearer 凭据和私钥标记做持久化前脱�
 main.ts             桌面生命周期、bindings 与安全导航
 src/profiles.ts     服务器配置校验和持久化
 src/ssh_tunnel.ts   OpenSSH 探测、隧道和错误分类
+src/hidden_process.ts Windows 隐藏进程与安全生命周期适配
+src/browser_locale.ts 运行时系统 locale 与 CEF 启动参数
 src/logger.ts       JSONL 诊断日志
 src/ui.ts           本地服务器选择页
-src/app_paths.ts    Windows/Linux 应用数据路径
+src/app_paths.ts    Windows/Linux/macOS 应用数据路径
 tests/              无头单元测试
 docs/               GUI 验证说明
 ```
@@ -132,7 +143,7 @@ docs/               GUI 验证说明
 ## 已知限制
 
 - 本地模式尚未实现。
-- macOS 尚未纳入构建和测试。
+- macOS 已纳入 CI 构建，但真实 GUI 行为仍等待实机验证；DMG 当前使用 ad-hoc 签名。
 - SSH 密码与私钥 passphrase 不提供应用内交互，请通过 `ssh-agent`
   解锁密钥，或配置专用的非交互认证方式。
 - 断线后会返回服务器选择页，目前不自动重连。

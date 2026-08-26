@@ -1,4 +1,4 @@
-import { posix, win32 } from "node:path";
+import { join } from "node:path";
 
 export interface AppPaths {
   readonly configFile: string;
@@ -8,13 +8,12 @@ export interface AppPaths {
 export type EnvironmentReader = (name: string) => string | undefined;
 
 export function resolveAppPaths(
-  os: typeof Deno.build.os = Deno.build.os,
   readEnvironment: EnvironmentReader = (name) => Deno.env.get(name),
 ): AppPaths {
-  if (os !== "windows" && os !== "linux") {
+  const os = Deno.build.os;
+  if (os !== "windows" && os !== "linux" && os !== "darwin") {
     throw new Error(`Unsupported platform: ${os}`);
   }
-  const joinPath = os === "windows" ? win32.join : posix.join;
 
   const home = readEnvironment(os === "windows" ? "USERPROFILE" : "HOME") ??
     readEnvironment("HOME");
@@ -23,14 +22,20 @@ export function resolveAppPaths(
   }
 
   const configRoot = os === "windows"
-    ? readEnvironment("APPDATA") ?? joinPath(home, "AppData", "Roaming")
-    : readEnvironment("XDG_CONFIG_HOME") ?? joinPath(home, ".config");
+    ? readEnvironment("APPDATA") ?? join(home, "AppData", "Roaming")
+    : os === "darwin"
+    ? join(home, "Library", "Application Support")
+    : readEnvironment("XDG_CONFIG_HOME") ?? join(home, ".config");
   const stateRoot = os === "windows"
-    ? readEnvironment("LOCALAPPDATA") ?? joinPath(home, "AppData", "Local")
-    : readEnvironment("XDG_STATE_HOME") ?? joinPath(home, ".local", "state");
+    ? readEnvironment("LOCALAPPDATA") ?? join(home, "AppData", "Local")
+    : os === "darwin"
+    ? join(home, "Library", "Logs")
+    : readEnvironment("XDG_STATE_HOME") ?? join(home, ".local", "state");
 
   return {
-    configFile: joinPath(configRoot, "dsh-desktop", "servers.json"),
-    logDirectory: joinPath(stateRoot, "dsh-desktop", "logs"),
+    configFile: join(configRoot, "dsh-desktop", "servers.json"),
+    logDirectory: os === "darwin"
+      ? join(stateRoot, "dsh-desktop")
+      : join(stateRoot, "dsh-desktop", "logs"),
   };
 }

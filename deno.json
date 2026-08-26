@@ -7,29 +7,23 @@
     "fmt": "deno fmt",
     "lint": "deno lint",
     "typecheck": "deno check --desktop main.ts",
-    "test": "deno test --permit-no-files --permission-set=app --allow-run",
-    "check": "deno fmt --check && deno lint && deno check --desktop main.ts && deno test --permit-no-files --permission-set=app --allow-run",
+    "test": "deno test --permit-no-files --permission-set=app",
+    "check": "deno fmt --check && deno lint && deno check --desktop main.ts && deno test --permit-no-files --permission-set=app",
     "build:linux": "deno desktop --permission-set=app --target x86_64-unknown-linux-gnu --output dist/linux/DSH-Desktop main.ts",
     "build:windows": "deno desktop --permission-set=app --target x86_64-pc-windows-msvc --output dist/windows/DSH-Desktop main.ts",
+    "build:macos:aarch64": "deno desktop --permission-set=app --target aarch64-apple-darwin --output dist/macos/aarch64/DSH-Desktop.app main.ts",
+    "build:macos:x86_64": "deno desktop --permission-set=app --target x86_64-apple-darwin --output dist/macos/x86_64/DSH-Desktop.app main.ts",
     "package:linux": "deno desktop --permission-set=app --target x86_64-unknown-linux-gnu --output dist/linux/DSH-Desktop.AppImage main.ts",
-    "package:windows": "deno desktop --permission-set=app --target x86_64-pc-windows-msvc --output dist/windows/DSH-Desktop.msi main.ts"
+    "package:windows": "deno desktop --permission-set=app --target x86_64-pc-windows-msvc --output dist/windows/DSH-Desktop.msi main.ts",
+    "package:macos:aarch64": "deno desktop --permission-set=app --target aarch64-apple-darwin --output dist/macos/DSH-Desktop-aarch64.dmg main.ts",
+    "package:macos:x86_64": "deno desktop --permission-set=app --target x86_64-apple-darwin --output dist/macos/DSH-Desktop-x86_64.dmg main.ts"
   },
   "permissions": {
     "app": {
-      "env": [
-        "APPDATA",
-        "DENO_SERVE_ADDRESS",
-        "HOME",
-        "LOCALAPPDATA",
-        "USERPROFILE",
-        "XDG_CONFIG_HOME",
-        "XDG_STATE_HOME"
-      ],
+      "env": true,
       "read": true,
       "write": true,
-      "run": [
-        "ssh"
-      ],
+      "run": true,
       "net": [
         "127.0.0.1",
         "[::1]"
@@ -43,6 +37,7 @@
     },
     "backend": "cef",
     "output": {
+      "macos": "./dist/macos/DSH-Desktop.app",
       "windows": "./dist/windows/DSH-Desktop",
       "linux": "./dist/linux/DSH-Desktop"
     }

@@ -1,5 +1,12 @@
 import { basename, join } from "node:path";
 import { resolveAppPaths } from "../src/app_paths.ts";
+import {
+  browserLocaleArguments,
+  canonicalSystemLocale,
+  commandLineSwitchValue,
+  createBrowserLocaleLaunchPlan,
+} from "../src/browser_locale.ts";
+import { launchDetachedHidden } from "../src/hidden_process.ts";
 import { errorContext, JsonlLogger } from "../src/logger.ts";
 import { DEFAULT_REMOTE_PORT, ProfileStore, ProfileValidationError } from "../src/profiles.ts";
 import { buildSshArguments, probeOpenSsh, startSshTunnel, TunnelError } from "../src/ssh_tunnel.ts";
@@ -52,41 +59,106 @@ async function assertRejects<T extends Error>(
   throw new Error(`Expected ${ErrorClass.name} to be thrown`);
 }
 
-Deno.test("resolveAppPaths uses platform-specific config and state roots", () => {
+Deno.test("resolveAppPaths uses the native platform path rules", () => {
+  if (Deno.build.os === "windows") {
+    assertEquals(
+      resolveAppPaths(env({
+        USERPROFILE: "C:\\Users\\Alice",
+        APPDATA: "C:\\Users\\Alice\\AppData\\Roaming",
+        LOCALAPPDATA: "C:\\Users\\Alice\\AppData\\Local",
+      })),
+      {
+        configFile: "C:\\Users\\Alice\\AppData\\Roaming\\dsh-desktop\\servers.json",
+        logDirectory: "C:\\Users\\Alice\\AppData\\Local\\dsh-desktop\\logs",
+      },
+    );
+    return;
+  }
+
+  if (Deno.build.os === "darwin") {
+    assertEquals(resolveAppPaths(env({ HOME: "/Users/alice" })), {
+      configFile: "/Users/alice/Library/Application Support/dsh-desktop/servers.json",
+      logDirectory: "/Users/alice/Library/Logs/dsh-desktop",
+    });
+    return;
+  }
+
   assertEquals(
-    resolveAppPaths(
-      "linux",
-      env({
-        HOME: "/home/alice",
-        XDG_CONFIG_HOME: "/cfg",
-        XDG_STATE_HOME: "/state",
-      }),
-    ),
+    resolveAppPaths(env({
+      HOME: "/home/alice",
+      XDG_CONFIG_HOME: "/cfg",
+      XDG_STATE_HOME: "/state",
+    })),
     {
       configFile: "/cfg/dsh-desktop/servers.json",
       logDirectory: "/state/dsh-desktop/logs",
     },
   );
-
-  assertEquals(resolveAppPaths("linux", env({ HOME: "/home/alice" })), {
+  assertEquals(resolveAppPaths(env({ HOME: "/home/alice" })), {
     configFile: "/home/alice/.config/dsh-desktop/servers.json",
     logDirectory: "/home/alice/.local/state/dsh-desktop/logs",
   });
+});
+
+Deno.test("browser locale planning uses only runtime values and exact switches", () => {
+  assertEquals(canonicalSystemLocale("zh_CN"), "zh-CN");
+  assertEquals(canonicalSystemLocale("not a locale"), undefined);
+  assertEquals(browserLocaleArguments("zh-CN"), ["--lang=zh-CN", "--accept-lang=zh-CN,zh"]);
+  assertEquals(
+    commandLineSwitchValue(["--some-url=https://example.test/?q=--lang=fr-FR"], "--lang"),
+    undefined,
+  );
+  assertEquals(
+    commandLineSwitchValue(["--lang=fr-FR --accept-lang=fr-FR,fr"], "--lang"),
+    "fr-FR",
+  );
+
+  const supportedDesktop = Deno.build.os === "windows" || Deno.build.os === "darwin";
+  const plan = createBrowserLocaleLaunchPlan(
+    ["--user-flag"],
+    "zh_CN",
+    true,
+    false,
+    Deno.execPath(),
+  );
+  if (supportedDesktop) {
+    assertEquals(plan, {
+      executable: Deno.execPath(),
+      args: ["--user-flag", "--lang=zh-CN", "--accept-lang=zh-CN,zh"],
+      locale: "zh-CN",
+    });
+    assertExists(createBrowserLocaleLaunchPlan([], "en-US", true, false, Deno.execPath()));
+  } else {
+    assertEquals(plan, undefined);
+  }
 
   assertEquals(
-    resolveAppPaths(
-      "windows",
-      env({
-        USERPROFILE: "C:\\Users\\Alice",
-        APPDATA: "C:\\Users\\Alice\\AppData\\Roaming",
-        LOCALAPPDATA: "C:\\Users\\Alice\\AppData\\Local",
-      }),
-    ),
-    {
-      configFile: "C:\\Users\\Alice\\AppData\\Roaming\\dsh-desktop\\servers.json",
-      logDirectory: "C:\\Users\\Alice\\AppData\\Local\\dsh-desktop\\logs",
-    },
+    createBrowserLocaleLaunchPlan([], undefined, true, false, Deno.execPath()),
+    undefined,
   );
+  assertEquals(
+    createBrowserLocaleLaunchPlan([], "zh-CN", false, false, Deno.execPath()),
+    undefined,
+  );
+  assertEquals(createBrowserLocaleLaunchPlan([], "zh-CN", true, true, Deno.execPath()), undefined);
+  assertEquals(
+    createBrowserLocaleLaunchPlan(
+      ["--accept-lang=ja-JP,ja"],
+      "zh-CN",
+      true,
+      false,
+      Deno.execPath(),
+    ),
+    undefined,
+  );
+});
+
+Deno.test("locale relaunch rejects a child that exits during bootstrap", async () => {
+  const error = await assertRejects(
+    () => launchDetachedHidden(Deno.execPath(), ["eval", "Deno.exit(1)"]),
+    Error,
+  );
+  assertMatch(error.message, /exited during bootstrap/u);
 });
 
 Deno.test("ProfileStore defaults port, validates input, persists and deletes", async () => {
@@ -169,6 +241,10 @@ Deno.test("probeOpenSsh reports platform install help when command is missing", 
   const linux = await probeOpenSsh("linux", missingCommand);
   assertEquals(linux.available, false);
   assertMatch(linux.installHelp ?? "", /openssh-client/u);
+
+  const macos = await probeOpenSsh("darwin", missingCommand);
+  assertEquals(macos.available, false);
+  assertMatch(macos.installHelp ?? "", /macOS PATH/u);
 });
 
 Deno.test("startSshTunnel supports fake child ready path and stop lifecycle", async () => {

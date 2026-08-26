@@ -1,4 +1,4 @@
-# Windows / Linux GUI 验证
+# Windows / Linux / macOS GUI 验证
 
 本文用于验证首版远程模式。无头 CI
 负责格式、lint、类型、单测和打包；本页覆盖必须在真实桌面环境观察的窗口、CEF、OpenSSH 与 DSH Web
@@ -60,6 +60,31 @@ deno task build:windows
 ```powershell
 $day = Get-Date -Format yyyy-MM-dd
 Get-Content "$env:LOCALAPPDATA\dsh-desktop\logs\dsh-desktop-$day.jsonl" -Wait
+```
+
+## macOS
+
+```bash
+# Apple Silicon
+deno task build:macos:aarch64
+open ./dist/macos/aarch64/DSH-Desktop.app
+
+# Intel
+deno task build:macos:x86_64
+open ./dist/macos/x86_64/DSH-Desktop.app
+```
+
+DMG 由 macOS 主机构建：
+
+```bash
+deno task package:macos:aarch64
+deno task package:macos:x86_64
+```
+
+当前 DMG 使用 ad-hoc 签名，首次测试可能需要在 Finder 中右键选择“打开”。实时查看日志：
+
+```bash
+tail -f "$HOME/Library/Logs/dsh-desktop/dsh-desktop-$(date +%F).jsonl"
 ```
 
 ## 必测场景
@@ -127,6 +152,20 @@ Get-Content "$env:LOCALAPPDATA\dsh-desktop\logs\dsh-desktop-$day.jsonl" -Wait
 
 预期选择页显示对应平台的安装指引，连接按钮不可用，日志包含 `ssh.probe` 且 `available` 为 `false`。
 
+### 8. 系统 locale
+
+1. 使用没有显式 `locale.preference` 的全新 DSH 配置，或先在 DSH 设置中清除语言偏好。
+2. 把 Windows/macOS 系统语言设为中文或另一种可识别语言，再启动桌面应用。
+3. 确认 DSH Web 初始语言跟随系统；显式保存过的 DSH 语言偏好仍应优先。
+4. 确认 `app.start.context.browserLocale` 是运行机器检测到的
+   locale；检测失败时该字段缺席且应用正常启动。
+
+### 9. Windows 隐藏 OpenSSH 窗口
+
+在 Windows 上分别观察应用启动时的 `ssh -V` 探测和点击“连接”后的长连接过程。
+
+预期全程不出现 `cmd.exe`/控制台闪窗；连接、错误提示、日志和关闭时的 SSH 清理行为保持不变。
+
 ## 回报模板
 
 请为每个平台提供：
@@ -134,7 +173,7 @@ Get-Content "$env:LOCALAPPDATA\dsh-desktop\logs\dsh-desktop-$day.jsonl" -Wait
 ```text
 OS / 版本：
 构建命令：
-运行产物：目录包 / AppImage / MSI
+运行产物：目录包 / AppImage / MSI / DMG
 通过场景：1, 2, ...
 失败场景：
 复现步骤：

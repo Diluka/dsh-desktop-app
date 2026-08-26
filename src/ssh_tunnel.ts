@@ -1,3 +1,4 @@
+import { isCommandNotFoundError, runHiddenCommand, spawnHiddenProcess } from "./hidden_process.ts";
 import type { JsonlLogger } from "./logger.ts";
 import type { ServerProfile } from "./profiles.ts";
 
@@ -29,7 +30,7 @@ export class TunnelError extends Error {
 }
 
 interface ChildProcessLike {
-  readonly status: Promise<Deno.CommandStatus>;
+  readonly status: Promise<{ success: boolean; code: number; signal: string | null }>;
   readonly stderr: ReadableStream<Uint8Array>;
   kill(signal?: Deno.Signal): void;
 }
@@ -99,23 +100,18 @@ export async function probeOpenSsh(
   command = "ssh",
 ): Promise<OpenSshInfo> {
   try {
-    const output = await new Deno.Command(command, {
-      args: ["-V"],
-      stdin: "null",
-      stdout: "piped",
-      stderr: "piped",
-    }).output();
-    const text = `${new TextDecoder().decode(output.stderr)} ${
-      new TextDecoder().decode(output.stdout)
-    }`.trim();
+    const output = await runHiddenCommand(command, ["-V"]);
+    const text = `${output.stderr} ${output.stdout}`.trim();
     const version = text.match(/OpenSSH[^\s,]*/u)?.[0] ?? text.split(/\s/u)[0];
     return { available: output.success, ...(version ? { version } : {}) };
   } catch (error) {
-    if (!(error instanceof Deno.errors.NotFound)) throw error;
+    if (!isCommandNotFoundError(error)) throw error;
     return {
       available: false,
       installHelp: os === "windows"
         ? "请在 Windows 设置的可选功能中安装 OpenSSH 客户端，然后重新启动应用。"
+        : os === "darwin"
+        ? "请安装 OpenSSH Client，并确认 ssh 可从 macOS PATH 启动。"
         : "请安装 OpenSSH Client；Debian/Ubuntu 可执行 sudo apt install openssh-client。",
     };
   }
@@ -246,12 +242,7 @@ async function startTunnelAttempt(
 }
 
 function spawnOpenSsh(command: string, args: string[]): ChildProcessLike {
-  return new Deno.Command(command, {
-    args,
-    stdin: "null",
-    stdout: "null",
-    stderr: "piped",
-  }).spawn();
+  return spawnHiddenProcess(command, args);
 }
 
 function allocateLoopbackPort(): Promise<number> {
@@ -338,6 +329,9 @@ function classifySshFailure(stderr: readonly string[]): TunnelError {
     /address already in use|cannot listen to port|could not request local forwarding/iu.test(detail)
   ) {
     return new TunnelError("LOCAL_PORT_BUSY", "本地端口刚被其他程序占用，正在重试");
+  }
+  if (/\bENOENT\b|not found/iu.test(detail)) {
+    return new TunnelError("SSH_NOT_FOUND", "未找到 OpenSSH Client，请先安装后重试");
   }
   if (/permission denied|no more authentication methods/iu.test(detail)) {
     return new TunnelError(

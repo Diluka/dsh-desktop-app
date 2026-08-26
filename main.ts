@@ -1,8 +1,12 @@
 import { resolveAppPaths } from "./src/app_paths.ts";
+import { prepareSystemBrowserLocale } from "./src/browser_locale.ts";
 import { errorContext, JsonlLogger } from "./src/logger.ts";
 import { ProfileStore } from "./src/profiles.ts";
 import { probeOpenSsh, SshTunnel, startSshTunnel, TunnelError } from "./src/ssh_tunnel.ts";
 import { handleShellRequest } from "./src/ui.ts";
+
+const browserLocale = await prepareSystemBrowserLocale();
+if (browserLocale.relaunched) Deno.exit(0);
 
 const paths = resolveAppPaths();
 const logger = await JsonlLogger.create(paths.logDirectory);
@@ -10,7 +14,15 @@ await logger.info("app.start", "DSH Desktop is starting", {
   version: Deno.version.deno,
   os: Deno.build.os,
   arch: Deno.build.arch,
+  ...(browserLocale.locale ? { browserLocale: browserLocale.locale } : {}),
 });
+if (browserLocale.error) {
+  await logger.warn(
+    "browser.locale_bootstrap_failed",
+    "Could not relaunch Chromium with the system locale",
+    errorContext(browserLocale.error),
+  );
+}
 
 const { store, recoveredBackup } = await ProfileStore.open(paths.configFile);
 let startupNotice = recoveredBackup

@@ -36,6 +36,16 @@ jobs:
             package_task: package:windows
             artifact_name: dsh-desktop-windows-x86_64
             artifact_path: dist/windows/DSH-Desktop.msi
+          - name: macOS arm64
+            os: macos-14
+            package_task: package:macos:aarch64
+            artifact_name: dsh-desktop-macos-arm64
+            artifact_path: dist/macos/DSH-Desktop-aarch64.dmg
+          - name: macOS x86_64
+            os: macos-15-intel
+            package_task: package:macos:x86_64
+            artifact_name: dsh-desktop-macos-x86_64
+            artifact_path: dist/macos/DSH-Desktop-x86_64.dmg
 
     steps:
       - name: Check out repository
