@@ -153,12 +153,10 @@ Deno.test("browser locale planning uses only runtime values and exact switches",
   );
 });
 
-Deno.test("locale relaunch rejects a child that exits during bootstrap", async () => {
-  const error = await assertRejects(
-    () => launchDetachedHidden(Deno.execPath(), ["eval", "Deno.exit(1)"]),
-    Error,
-  );
-  assertMatch(error.message, /exited during bootstrap/u);
+Deno.test("locale relaunch reports process creation failure", async () => {
+  const missingExecutable = `missing-desktop-${crypto.randomUUID()}`;
+  const error = await assertRejects(() => launchDetachedHidden(missingExecutable, []), Error);
+  assertMatch(error.message, /ENOENT|not found/iu);
 });
 
 Deno.test("ProfileStore defaults port, validates input, persists and deletes", async () => {

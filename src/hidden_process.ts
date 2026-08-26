@@ -2,7 +2,6 @@ import { spawn } from "node:child_process";
 import { PassThrough, Readable } from "node:stream";
 
 const WINDOWS_HIDE_PROCESS = true;
-const RELAUNCH_STABILITY_MS = 750;
 
 export interface HiddenProcessStatus {
   readonly success: boolean;
@@ -98,37 +97,13 @@ export async function launchDetachedHidden(
     stdio: "ignore",
   });
   await new Promise<void>((resolve, reject) => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const onError = (error: Error) => finish(() => reject(error));
-    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
-      finish(() =>
-        reject(
-          new Error(
-            `Relaunched desktop process exited during bootstrap (code=${code}, signal=${signal})`,
-          ),
-        )
-      );
-    };
-    const onSpawn = () => {
-      timer = setTimeout(() => {
-        finish(() => {
-          child.unref();
-          resolve();
-        });
-      }, RELAUNCH_STABILITY_MS);
-    };
-
-    child.once("spawn", onSpawn);
-    child.once("error", onError);
-    child.once("exit", onExit);
-
-    function finish(done: () => void): void {
-      if (timer !== undefined) clearTimeout(timer);
-      child.off("spawn", onSpawn);
+    const onError = (error: Error) => reject(error);
+    child.once("spawn", () => {
       child.off("error", onError);
-      child.off("exit", onExit);
-      done();
-    }
+      child.unref();
+      resolve();
+    });
+    child.once("error", onError);
   });
 }
 
