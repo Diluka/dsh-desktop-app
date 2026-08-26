@@ -16,6 +16,7 @@
     "app": {
       "env": [
         "APPDATA",
+        "DENO_SERVE_ADDRESS",
         "HOME",
         "LOCALAPPDATA",
         "USERPROFILE",
