@@ -10,6 +10,13 @@ export interface ServerProfile {
   readonly remotePort: number;
 }
 
+export interface ServerProfileInput {
+  readonly id?: string | null;
+  readonly name?: string | null;
+  readonly sshTarget: string;
+  readonly remotePort?: string | number | null;
+}
+
 interface ProfileFile {
   readonly version: typeof CONFIG_VERSION;
   readonly profiles: readonly ServerProfile[];
@@ -74,18 +81,17 @@ export class ProfileStore {
     return profile ? { ...profile } : undefined;
   }
 
-  async save(input: unknown): Promise<ServerProfile> {
-    const record = asRecord(input);
-    const requestedId = typeof record.id === "string" ? record.id : undefined;
+  async save(input: ServerProfileInput): Promise<ServerProfile> {
+    const requestedId = typeof input.id === "string" ? input.id : undefined;
     const existingIndex = requestedId
       ? this.#profiles.findIndex((profile) => profile.id === requestedId)
       : -1;
-    const sshTarget = validateSshTarget(record.sshTarget);
+    const sshTarget = validateSshTarget(input.sshTarget);
     const profile: ServerProfile = {
       id: existingIndex >= 0 ? this.#profiles[existingIndex].id : this.createId(),
-      name: validateName(record.name, sshTarget),
+      name: validateName(input.name, sshTarget),
       sshTarget,
-      remotePort: validatePort(record.remotePort),
+      remotePort: validatePort(input.remotePort),
     };
 
     if (existingIndex >= 0) {
@@ -137,7 +143,7 @@ function parseProfileFile(raw: string): ServerProfile[] {
       id: profile.id,
       name: validateName(profile.name, sshTarget),
       sshTarget,
-      remotePort: validatePort(profile.remotePort),
+      remotePort: validateStoredPort(profile.remotePort),
     };
   });
 }
@@ -182,12 +188,24 @@ function hasControlCharacter(value: string): boolean {
   });
 }
 
-function validatePort(value: unknown): number {
+function validatePort(value: string | number | null | undefined): number {
   const port = value === undefined || value === null || value === ""
     ? DEFAULT_REMOTE_PORT
+    : typeof value === "number"
+    ? value
     : Number(value);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new ProfileValidationError("DSH Web 端口必须是 1-65535 的整数");
   }
   return port;
+}
+
+function validateStoredPort(value: unknown): number {
+  if (
+    typeof value === "string" || typeof value === "number" || value === null ||
+    value === undefined
+  ) {
+    return validatePort(value);
+  }
+  throw new ProfileValidationError("DSH Web 端口必须是 1-65535 的整数");
 }
