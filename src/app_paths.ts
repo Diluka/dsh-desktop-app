@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { posix, win32 } from "node:path";
 
 export interface AppPaths {
   readonly configFile: string;
@@ -14,6 +14,7 @@ export function resolveAppPaths(
   if (os !== "windows" && os !== "linux") {
     throw new Error(`Unsupported platform: ${os}`);
   }
+  const joinPath = os === "windows" ? win32.join : posix.join;
 
   const home = readEnvironment(os === "windows" ? "USERPROFILE" : "HOME") ??
     readEnvironment("HOME");
@@ -22,14 +23,14 @@ export function resolveAppPaths(
   }
 
   const configRoot = os === "windows"
-    ? readEnvironment("APPDATA") ?? join(home, "AppData", "Roaming")
-    : readEnvironment("XDG_CONFIG_HOME") ?? join(home, ".config");
+    ? readEnvironment("APPDATA") ?? joinPath(home, "AppData", "Roaming")
+    : readEnvironment("XDG_CONFIG_HOME") ?? joinPath(home, ".config");
   const stateRoot = os === "windows"
-    ? readEnvironment("LOCALAPPDATA") ?? join(home, "AppData", "Local")
-    : readEnvironment("XDG_STATE_HOME") ?? join(home, ".local", "state");
+    ? readEnvironment("LOCALAPPDATA") ?? joinPath(home, "AppData", "Local")
+    : readEnvironment("XDG_STATE_HOME") ?? joinPath(home, ".local", "state");
 
   return {
-    configFile: join(configRoot, "dsh-desktop", "servers.json"),
-    logDirectory: join(stateRoot, "dsh-desktop", "logs"),
+    configFile: joinPath(configRoot, "dsh-desktop", "servers.json"),
+    logDirectory: joinPath(stateRoot, "dsh-desktop", "logs"),
   };
 }

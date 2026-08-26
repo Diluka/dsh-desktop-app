@@ -73,20 +73,20 @@ Deno.test("resolveAppPaths uses platform-specific config and state roots", () =>
     logDirectory: "/home/alice/.local/state/dsh-desktop/logs",
   });
 
-  const windows = resolveAppPaths(
-    "windows",
-    env({
-      USERPROFILE: "C:\\Users\\Alice",
-      APPDATA: "C:\\Users\\Alice\\AppData\\Roaming",
-      LOCALAPPDATA: "C:\\Users\\Alice\\AppData\\Local",
-    }),
+  assertEquals(
+    resolveAppPaths(
+      "windows",
+      env({
+        USERPROFILE: "C:\\Users\\Alice",
+        APPDATA: "C:\\Users\\Alice\\AppData\\Roaming",
+        LOCALAPPDATA: "C:\\Users\\Alice\\AppData\\Local",
+      }),
+    ),
+    {
+      configFile: "C:\\Users\\Alice\\AppData\\Roaming\\dsh-desktop\\servers.json",
+      logDirectory: "C:\\Users\\Alice\\AppData\\Local\\dsh-desktop\\logs",
+    },
   );
-  const windowsConfigFile = windows.configFile.replaceAll("\\", "/");
-  const windowsLogDirectory = windows.logDirectory.replaceAll("\\", "/");
-  assert(windowsConfigFile.endsWith("dsh-desktop/servers.json"));
-  assert(windowsLogDirectory.endsWith("dsh-desktop/logs"));
-  assert(windowsConfigFile.includes("AppData"));
-  assert(windowsLogDirectory.includes("Local"));
 });
 
 Deno.test("ProfileStore defaults port, validates input, persists and deletes", async () => {
