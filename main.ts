@@ -43,6 +43,7 @@ const window = new Deno.BrowserWindow({
   width: 1180,
   height: 760,
 });
+window.hide();
 let releaseWindowIcon: (() => void) | undefined;
 if (Deno.build.os === "windows") {
   try {
@@ -80,6 +81,7 @@ addEventListener("unhandledrejection", (event) => {
     "Unhandled application rejection",
   );
 });
+window.show();
 
 function bindShell(): void {
   if (shellBindingsActive) return;

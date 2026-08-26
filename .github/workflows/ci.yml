@@ -62,8 +62,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Windows x86_64
-            os: windows-2022
+          - name: Windows x86_64 (cross-build)
+            os: ubuntu-24.04
             package_task: package:windows
             artifact_name: dsh-desktop-windows-x86_64
             artifact_path: dist/windows/DSH-Desktop-windows-x86_64.zip

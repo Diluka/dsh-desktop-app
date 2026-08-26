@@ -91,7 +91,7 @@ tail -f "$HOME/Library/Logs/dsh-desktop/dsh-desktop-$(date +%F).jsonl"
 
 ### 1. 首次启动与配置持久化
 
-1. 启动应用。
+1. 启动应用，确认窗口以目标尺寸直接出现，不先闪现小窗口或空白窗口。
 2. 确认出现“选择服务器”页面，左侧显示 `Chromium / CEF` 与 `OpenSSH LocalForward`。
 3. 添加 SSH Host 别名，端口保留 `3080`，保存后关闭并重新打开应用。
 4. 确认服务器仍在列表中，且页面没有本地端口或内部 URL 字段。
