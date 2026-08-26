@@ -105,7 +105,8 @@ Linux 构建和 AppImage 任务继续保留给源码用户自行执行；CI 与 
 
 ## 日志
 
-每次运行使用一个 `sessionId`，日志按天写入 JSONL。服务器选择页可直接打开日志目录：
+每个进程使用独立的 JSONL
+文件，文件名使用纳秒精度启动时间，不会与其他进程混写。服务器选择页可直接打开日志目录：
 
 - Linux：`$XDG_STATE_HOME/dsh-desktop/logs/`，未设置时为 `~/.local/state/dsh-desktop/logs/`
 - Windows：`%LOCALAPPDATA%\dsh-desktop\logs\`
@@ -137,7 +138,7 @@ password、passphrase、token、Bearer 凭据和私钥标记做持久化前脱�
 - `BatchMode=yes` 防止无界面的密码提示卡住应用。
 - 主机密钥校验沿用用户 `.ssh/config` 与 OpenSSH 默认策略，应用不会降低现有策略。
 - 启动 OpenSSH 并完整继承其环境需要运行时 `run/env` 权限；代码只启动 `ssh`。
-- Pino 加载时只额外开放 `sys.hostname`；文件日志的基础字段仅包含随机 `sessionId`。
+- Pino 加载时只额外开放 `sys.hostname`；文件日志的基础字段包含进程 `pid`。
 - Windows 通过 FFI 加载系统目录中的 `user32.dll`，用于给原生窗口设置已打包的应用图标；远端页面没有
   FFI binding。
 - 远端 DSH 页面加载前会移除配置、删除和连接 bindings。

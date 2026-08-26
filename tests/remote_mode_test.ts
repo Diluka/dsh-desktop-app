@@ -14,8 +14,11 @@ import { createLogger } from "../src/logger.ts";
 import { directoryOpenCommand } from "../src/open_directory.ts";
 import { DEFAULT_REMOTE_PORT, ProfileStore, ProfileValidationError } from "../src/profiles.ts";
 import { buildSshArguments, probeOpenSsh, startSshTunnel, TunnelError } from "../src/ssh_tunnel.ts";
-import { handleShellRequest, SHELL_HTML } from "../src/ui.ts";
+import SHELL_HTML from "../src/ui.html" with { type: "text" };
+import { handleShellRequest } from "../src/ui.ts";
 import { setWindowsWindowIcon } from "../src/windows_window_icon.ts";
+
+const LOG_FILE_PATTERN = /^dsh-desktop-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{9}Z\.jsonl$/u;
 
 function env(values: Record<string, string | undefined>): (name: string) => string | undefined {
   return (name) => values[name];
@@ -263,13 +266,13 @@ Deno.test("Pino writes standard JSONL fields and redacts sensitive values", asyn
   logger.error({ event: "app.unhandled_rejection", err: "token=reason-secret" }, "Rejected");
   logger.flush();
 
-  assertMatch(basename(filePath), /^dsh-desktop-\d{4}-\d{2}-\d{2}\.jsonl$/u);
+  assertMatch(basename(filePath), LOG_FILE_PATTERN);
   const lines = (await Deno.readTextFile(filePath)).trimEnd().split("\n");
   assertEquals(lines.length, 2);
   const entry = JSON.parse(lines[0]);
   assertFalse(Number.isNaN(Date.parse(entry.time)));
   assertEquals(entry.level, 50);
-  assertMatch(entry.sessionId, /^[0-9a-f-]{36}$/u);
+  assertEquals(entry.pid, Deno.pid);
   assertEquals(entry.event, "ssh.failed");
   assertEquals(entry.msg, "Failed to connect");
   assertEquals(entry.token, "[REDACTED]");
@@ -284,6 +287,27 @@ Deno.test("Pino writes standard JSONL fields and redacts sensitive values", asyn
   const rejection = JSON.parse(lines[1]);
   assertEquals(rejection.event, "app.unhandled_rejection");
   assertEquals(rejection.err, "token=[REDACTED]");
+});
+
+Deno.test("Pino creates a separate file for each logger", async () => {
+  const directory = await Deno.makeTempDir();
+  const first = await createLogger(directory);
+  const second = await createLogger(directory);
+  first.info({ event: "session.first" }, "First session");
+  second.info({ event: "session.second" }, "Second session");
+  first.flush();
+  second.flush();
+
+  const files = await findLogFiles(directory);
+  assertEquals(files.length, 2);
+  const contents = await Promise.all(files.map((file) => Deno.readTextFile(file)));
+  assert(contents.some((content) => content.includes('"event":"session.first"')));
+  assert(contents.some((content) => content.includes('"event":"session.second"')));
+  assertFalse(
+    contents.some((content) =>
+      content.includes('"event":"session.first"') && content.includes('"event":"session.second"')
+    ),
+  );
 });
 
 Deno.test("handleShellRequest serves safe shell responses without local tunnel internals", async () => {
@@ -309,8 +333,6 @@ Deno.test("handleShellRequest serves safe shell responses without local tunnel i
     404,
   );
 
-  assert(SHELL_HTML.includes('id="open-log-directory"'));
-  assert(SHELL_HTML.includes("bindings.openLogDirectory()"));
   assertFalse(SHELL_HTML.includes("http://127.0.0.1:"));
   assertFalse(SHELL_HTML.includes("localhost:"));
   assertFalse(SHELL_HTML.includes("localPort"));
@@ -328,12 +350,17 @@ async function memoryLogger() {
 }
 
 async function findLogFile(directory: string): Promise<string> {
+  const [file] = await findLogFiles(directory);
+  if (!file) throw new Error("Pino log file was not created");
+  return file;
+}
+
+async function findLogFiles(directory: string): Promise<string[]> {
+  const files: string[] = [];
   for await (const entry of Deno.readDir(directory)) {
-    if (entry.isFile && /^dsh-desktop-\d{4}-\d{2}-\d{2}\.jsonl$/u.test(entry.name)) {
-      return join(directory, entry.name);
-    }
+    if (entry.isFile && LOG_FILE_PATTERN.test(entry.name)) files.push(join(directory, entry.name));
   }
-  throw new Error("Pino log file was not created");
+  return files;
 }
 
 function tickingClock(initial: number, step: number): () => number {

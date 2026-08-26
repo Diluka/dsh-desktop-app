@@ -8,6 +8,7 @@ import { handleShellRequest } from "./src/ui.ts";
 import { setWindowsWindowIcon } from "./src/windows_window_icon.ts";
 
 const systemLocale = detectSystemLocale();
+Deno.serve({ hostname: "127.0.0.1" }, handleShellRequest);
 const paths = resolveAppPaths();
 const logger = await createLogger(paths.logDirectory);
 logger.info({
@@ -36,7 +37,6 @@ logger.info({
 }, ssh.available ? "OpenSSH Client is available" : "OpenSSH Client is unavailable");
 
 const shellUrl = resolveShellUrl();
-Deno.serve({ hostname: "127.0.0.1" }, handleShellRequest);
 const nativeWindowTitle = Deno.build.os === "windows" ? `DSH Desktop ${Deno.pid}` : "DSH Desktop";
 const window = new Deno.BrowserWindow({ title: nativeWindowTitle });
 let releaseWindowIcon: (() => void) | undefined;
@@ -115,7 +115,10 @@ function bindShell(): void {
   window.bind("openLogDirectory", async () => {
     try {
       await openDirectory(paths.logDirectory);
-      logger.info({ event: "logs.directory_opened" }, "Opened the log directory");
+      logger.info(
+        { event: "logs.directory_open_requested" },
+        "Requested opening the log directory",
+      );
       return null;
     } catch (error) {
       logger.error(

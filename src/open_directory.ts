@@ -26,7 +26,7 @@ export async function openDirectory(directory: string): Promise<void> {
 async function launchWindowsExplorer(command: string, args: string[]): Promise<void> {
   const child = spawn(command, args, {
     detached: true,
-    windowsHide: true,
+    windowsHide: false,
     stdio: "ignore",
   });
   await new Promise<void>((resolve, reject) => {

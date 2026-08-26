@@ -19,14 +19,16 @@ const SENSITIVE_PATHS = [
 
 export async function createLogger(logDirectory: string): Promise<Logger> {
   await Deno.mkdir(logDirectory, { recursive: true });
-  const day = new Date().toISOString().slice(0, 10);
+  const startedAt = Temporal.Now.instant()
+    .toString({ fractionalSecondDigits: 9 })
+    .replaceAll(":", "-");
   const destination = pino.destination({
-    dest: join(logDirectory, `dsh-desktop-${day}.jsonl`),
+    dest: join(logDirectory, `dsh-desktop-${startedAt}.jsonl`),
     sync: true,
   });
 
   return pino({
-    base: { sessionId: crypto.randomUUID() },
+    base: { pid: Deno.pid },
     timestamp: pino.stdTimeFunctions.isoTime,
     redact: {
       paths: SENSITIVE_PATHS,

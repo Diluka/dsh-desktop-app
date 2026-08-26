@@ -35,7 +35,8 @@ chmod +x ./dist/linux/DSH-Desktop.AppImage
 实时查看日志：
 
 ```bash
-tail -f "${XDG_STATE_HOME:-$HOME/.local/state}/dsh-desktop/logs/dsh-desktop-$(date +%F).jsonl"
+log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/dsh-desktop/logs"
+tail -f "$(ls -t "$log_dir"/dsh-desktop-*.jsonl | head -n 1)"
 ```
 
 ## Windows
@@ -58,8 +59,9 @@ deno task build:windows
 实时查看日志：
 
 ```powershell
-$day = Get-Date -Format yyyy-MM-dd
-Get-Content "$env:LOCALAPPDATA\dsh-desktop\logs\dsh-desktop-$day.jsonl" -Wait
+$log = Get-ChildItem "$env:LOCALAPPDATA\dsh-desktop\logs\dsh-desktop-*.jsonl" |
+  Sort-Object LastWriteTime -Descending | Select-Object -First 1
+Get-Content $log.FullName -Wait
 ```
 
 ## macOS
@@ -85,7 +87,8 @@ deno task package:macos:x86_64
 签名或 notarization，首次测试可能需要在 Finder 中右键选择“打开”。实时查看日志：
 
 ```bash
-tail -f "$HOME/Library/Logs/dsh-desktop/dsh-desktop-$(date +%F).jsonl"
+log_dir="$HOME/Library/Logs/dsh-desktop"
+tail -f "$(ls -t "$log_dir"/dsh-desktop-*.jsonl | head -n 1)"
 ```
 
 ## 必测场景
@@ -162,8 +165,8 @@ tail -f "$HOME/Library/Logs/dsh-desktop/dsh-desktop-$(date +%F).jsonl"
 ### 9. 打开日志目录
 
 在服务器选择页点击“打开目录”，确认 Windows Explorer、macOS Finder 或 Linux
-默认文件管理器打开当前日志目录。 成功时日志包含 `logs.directory_opened`。Linux 缺少 `xdg-open`
-或系统命令失败时，页面必须弹窗提示且日志包含 `logs.directory_open_failed`。
+默认文件管理器打开当前日志目录。 命令成功交给系统时日志包含 `logs.directory_open_requested`。Linux
+缺少 `xdg-open` 或系统命令失败时，页面必须弹窗提示且日志包含 `logs.directory_open_failed`。
 
 ### 10. Windows 隐藏 OpenSSH 窗口
 
@@ -192,5 +195,5 @@ OS / 版本：
 日志文件：
 ```
 
-日志优先提供失败会话对应 `sessionId` 的完整事件。外发前可脱敏 SSH Host、用户名和本地路径；保留
+日志优先提供失败进程对应 JSONL 文件中的完整事件。外发前可脱敏 SSH Host、用户名和本地路径；保留
 `event`、`time`、`msg`、错误类别、退出码和事件顺序。
