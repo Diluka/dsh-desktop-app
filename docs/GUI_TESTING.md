@@ -52,7 +52,7 @@ deno task build:windows
 deno task build:windows
 ```
 
-复制完整目录后运行其中的 `DshDesktop.bat`。如需安装包，执行 `deno task package:windows` 并运行
+复制完整目录后运行其中的 `DshDesktop.exe`。如需安装包，执行 `deno task package:windows` 并运行
 `dist/windows/DSH-Desktop.msi`。
 
 实时查看日志：
