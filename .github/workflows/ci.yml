@@ -62,11 +62,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Windows x86_64 (cross-build)
+          - name: Windows CEF x86_64 (cross-build)
             os: ubuntu-24.04
-            package_task: package:windows
-            artifact_name: dsh-desktop-windows-x86_64
-            artifact_path: dist/windows/DSH-Desktop-windows-x86_64.zip
+            package_task: package:windows:cef
+            artifact_name: dsh-desktop-windows-cef-x86_64
+            artifact_path: dist/windows/DSH-Desktop-windows-x86_64-cef.zip
+          - name: Windows WebView2 x86_64 (cross-build)
+            os: ubuntu-24.04
+            package_task: package:windows:webview
+            artifact_name: dsh-desktop-windows-webview-x86_64
+            artifact_path: dist/windows/DSH-Desktop-windows-x86_64-webview.zip
           - name: macOS arm64 (cross-build)
             os: ubuntu-24.04
             package_task: package:macos:aarch64
@@ -125,7 +130,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -s release-assets/DSH-Desktop-windows-x86_64.zip
+          test -s release-assets/DSH-Desktop-windows-x86_64-cef.zip
+          test -s release-assets/DSH-Desktop-windows-x86_64-webview.zip
           test -s release-assets/DSH-Desktop-macos-aarch64.tar.gz
           test -s release-assets/DSH-Desktop-macos-x86_64.tar.gz
           ls -lh release-assets
@@ -143,7 +149,8 @@ jobs:
           fi
 
           assets=(
-            release-assets/DSH-Desktop-windows-x86_64.zip
+            release-assets/DSH-Desktop-windows-x86_64-cef.zip
+            release-assets/DSH-Desktop-windows-x86_64-webview.zip
             release-assets/DSH-Desktop-macos-aarch64.tar.gz
             release-assets/DSH-Desktop-macos-x86_64.tar.gz
           )
@@ -151,14 +158,14 @@ jobs:
           This rolling release was built from commit \`${GITHUB_SHA}\`.
 
           It is updated only after all Linux, Windows, and macOS test jobs plus all
-          Windows and macOS distribution builds complete successfully.
+          Windows CEF, Windows WebView2, and macOS distribution builds complete successfully.
 
           Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
           EOF
 
           if gh release view latest >/dev/null 2>&1; then
             existing_assets=$(gh release view latest --json assets --jq '.assets[].name')
-            for stale_asset in DSH-Desktop.AppImage DSH-Desktop.msi DSH-Desktop-Setup.exe DSH-Desktop-aarch64.dmg DSH-Desktop-x86_64.dmg; do
+            for stale_asset in DSH-Desktop-windows-x86_64.zip DSH-Desktop.AppImage DSH-Desktop.msi DSH-Desktop-Setup.exe DSH-Desktop-aarch64.dmg DSH-Desktop-x86_64.dmg; do
               if grep -Fxq "${stale_asset}" <<<"${existing_assets}"; then
                 gh release delete-asset latest "${stale_asset}" --yes
               fi

@@ -1,8 +1,8 @@
 # Windows / Linux / macOS GUI 验证
 
 本文用于验证首版远程模式。无头 CI
-负责格式、lint、类型、单测和打包；本页覆盖必须在真实桌面环境观察的窗口、CEF、OpenSSH 与 DSH Web
-行为。
+负责格式、lint、类型、单测和打包；本页覆盖必须在真实桌面环境观察的窗口、CEF/WebView2、OpenSSH 与 DSH
+Web 行为。
 
 ## 准备
 
@@ -14,8 +14,9 @@
 5. 从仓库执行 `deno task check`，再构建目标平台目录包。
 
 > [!NOTE]
-> 从 WSL 交叉构建 Windows 后，请把整个 `dist/windows/DSH-Desktop/` 目录复制到 Windows
-> 本地磁盘再运行，避免把 WSL/UNC 路径问题误判为应用问题。
+> 从 WSL 交叉构建 Windows 后，请把整个 `dist/windows/DSH-Desktop-CEF/` 或
+> `dist/windows/DSH-Desktop-WebView/` 目录复制到 Windows 本地磁盘再运行，避免把 WSL/UNC
+> 路径问题误判为应用问题。
 
 ## Linux
 
@@ -53,8 +54,10 @@ deno task build:windows
 deno task build:windows
 ```
 
-复制完整目录后运行其中的 `DSH-Desktop.exe`。执行 `deno task package:windows` 会生成
-`dist/windows/DSH-Desktop-windows-x86_64.zip`；完整解压后再运行，不能只复制 EXE。
+分别复制完整的 `dist/windows/DSH-Desktop-CEF/` 与 `dist/windows/DSH-Desktop-WebView/` 目录，运行
+其中同名 EXE。执行 `deno task package:windows` 会生成 `DSH-Desktop-windows-x86_64-cef.zip` 和
+`DSH-Desktop-windows-x86_64-webview.zip`；完整解压后再运行， 不能只复制 EXE。Windows
+两个版本都需覆盖本节场景；WebView2 版本还需确认系统 Runtime 可用。
 
 实时查看日志：
 
@@ -96,7 +99,8 @@ tail -f "$(ls -t "$log_dir"/dsh-desktop-*.jsonl | head -n 1)"
 ### 1. 首次启动与配置持久化
 
 1. 启动应用，确认窗口保持原生默认尺寸，不发生可见的二次尺寸调整。
-2. 确认出现“选择服务器”页面，左侧显示 `Chromium / CEF` 与 `OpenSSH LocalForward`。
+2. 确认出现“选择服务器”页面；CEF 版左侧显示 `Chromium / CEF`，WebView2 版显示
+   `Microsoft Edge WebView2`，连接方式均显示 `OpenSSH`。
 3. 添加 SSH Host 别名，端口保留 `3080`，保存后关闭并重新打开应用。
 4. 确认服务器仍在列表中，且页面没有本地端口或内部 URL 字段。
 
@@ -107,7 +111,7 @@ tail -f "$(ls -t "$log_dir"/dsh-desktop-*.jsonl | head -n 1)"
 1. 选择远端 DSH Web 监听 `3080` 的服务器。
 2. 点击“连接”。
 3. 确认出现连接覆盖层，随后同一桌面窗口加载完整 DSH Web。
-4. 使用 DSH 的普通导航、流式输出和会话功能，确认 Chromium 渲染及 WebSocket/流式行为正常。
+4. 使用 DSH 的普通导航、流式输出和会话功能，确认当前后端渲染及 WebSocket/流式行为正常。
 5. 关闭窗口，确认本地 `ssh` 子进程同时退出。
 
 预期日志依次包含 `ssh.tunnel_starting`、`ssh.tunnel_ready`，关闭时包含 `ssh.tunnel_exited` 且
@@ -157,7 +161,7 @@ tail -f "$(ls -t "$log_dir"/dsh-desktop-*.jsonl | head -n 1)"
 
 ### 8. 语言与系统 locale
 
-1. 在三个平台分别启动桌面应用，确认全程只有一次 CEF 启动且不出现 locale 自重启空白窗口。
+1. 在 Linux/macOS CEF 版与 Windows CEF/WebView2 两个版本分别启动，确认不出现 locale 自重启空白窗口。
 2. 在 DSH 设置中保存语言后重启桌面应用，确认偏好仍然生效。
 3. 确认 `app.start.systemLocale` 是运行机器检测到的 locale；该字段只用于诊断，不控制 DSH 界面语言。
 4. locale 检测失败时该字段缺席，应用仍应正常启动。
@@ -176,9 +180,9 @@ tail -f "$(ls -t "$log_dir"/dsh-desktop-*.jsonl | head -n 1)"
 
 ### 11. Windows 应用图标
 
-解压 Windows ZIP 后检查 `DSH-Desktop.exe`、运行窗口和任务栏。预期均显示项目鱼形图标，而不是 Windows
-或 Chrome 默认图标；若任务栏保留旧缓存，先取消固定再重新固定后复查。关闭应用后用新 ZIP
-的完整目录覆盖旧目录， 确认应用可正常启动且服务器配置仍保留。
+解压 Windows ZIP 后分别检查 `DSH-Desktop-CEF.exe`、`DSH-Desktop-WebView.exe`、运行窗口和任务栏。
+预期均显示项目鱼形图标，而不是 Windows 或浏览器默认图标；若任务栏保留旧缓存，先取消固定再重新固定后
+复查。关闭应用后用新 ZIP 的完整目录覆盖旧目录， 确认应用可正常启动且服务器配置仍保留。
 
 ## 回报模板
 

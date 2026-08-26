@@ -3,11 +3,12 @@
 [![CI](https://github.com/Diluka/dsh-desktop-app/actions/workflows/ci.yml/badge.svg)](https://github.com/Diluka/dsh-desktop-app/actions/workflows/ci.yml)
 
 DSH 的 Windows、Linux 与 macOS 桌面入口。首版提供远程模式：选择服务器后，应用调用本机 OpenSSH Client
-建立本地端口转发，再用内置 Chromium（CEF）打开远端 DSH Web。
+建立本地端口转发，再打开远端 DSH Web。Windows 同时提供内置 Chromium（CEF）与系统 WebView2 两种版本；
+Linux 和 macOS 使用 CEF。
 
 > [!IMPORTANT]
-> `deno desktop` 从 Deno 2.9 开始提供，目前仍标记为 experimental。项目固定使用 `cef` 后端，以换取
-> Windows、Linux 与 macOS 一致的 Chromium 渲染行为。
+> `deno desktop` 从 Deno 2.9 开始提供，目前仍标记为 experimental。CEF 版本自带 Chromium、体积较大；
+> WebView2 版本体积较小，但依赖 Windows 已安装的 Microsoft Edge WebView2 Runtime。
 
 ## 当前范围
 
@@ -16,8 +17,9 @@ DSH 的 Windows、Linux 与 macOS 桌面入口。首版提供远程模式：选�
 - 本地转发只绑定 `127.0.0.1`，空闲端口由应用自动选择。
 - SSH 成功后移除选择页的本地 bindings，再导航到 DSH Web。
 - Pino JSONL 日志记录启动、配置、OpenSSH、隧道和退出生命周期。
-- 所有平台都只启动一个 CEF 进程；系统 locale 仅写入日志，界面语言使用 DSH 已保存的偏好。
-- 支持 Windows x86_64、Linux x86_64、macOS arm64 与 macOS x86_64 构建。
+- CEF 与 WebView2 共用配置、SSH、日志和本地选择页；系统 locale 仅写入日志，界面语言使用 DSH
+  已保存的偏好。
+- 支持 Windows x86_64 的 CEF/WebView2，以及 Linux x86_64、macOS arm64 与 macOS x86_64 CEF 构建。
 
 首版认证使用密钥或 `ssh-agent`，不在应用内接收或保存 SSH 密码、私钥内容和 passphrase。
 
@@ -61,20 +63,25 @@ deno task check
 deno task dev
 ```
 
-运行时日志使用 Pino 10.1.0。Deno Desktop、命名权限集和 CEF 后端均属于当前 Deno 2.9 的实验性契约。
+运行时日志使用 Pino 10.1.0。Deno Desktop、命名权限集和 CEF/WebView2 后端均属于当前 Deno 2.9
+的实验性契约。
 
 ## 构建
 
 ```bash
 # 可直接运行的目录包
 deno task build:linux
-deno task build:windows
+deno task build:windows          # 同时构建 Windows CEF 与 WebView2
 deno task build:macos:aarch64
 deno task build:macos:x86_64
 
+# 也可只构建一个 Windows 后端
+deno task build:windows:cef
+deno task build:windows:webview
+
 # 便于分发的产物
 deno task package:linux          # AppImage
-deno task package:windows        # 完整目录 ZIP
+deno task package:windows        # 同时生成两个 Windows 完整目录 ZIP
 deno task package:macos:aarch64  # Apple Silicon .app tar.gz
 deno task package:macos:x86_64   # Intel .app tar.gz
 ```
@@ -82,24 +89,26 @@ deno task package:macos:x86_64   # Intel .app tar.gz
 目录包输出到：
 
 - Linux：`dist/linux/DSH-Desktop/`
-- Windows：`dist/windows/DSH-Desktop/`
+- Windows CEF：`dist/windows/DSH-Desktop-CEF/`
+- Windows WebView2：`dist/windows/DSH-Desktop-WebView/`
 - macOS arm64：`dist/macos/aarch64/DSH-Desktop.app`
 - macOS x86_64：`dist/macos/x86_64/DSH-Desktop.app`
 
-Deno 会按目标平台下载并校验对应的 CEF 后端，因此首次构建较慢且产物体积较大。Windows ZIP 与两个 macOS
-`.app` tar.gz 均在 Linux 交叉编译打包；目标系统 CI 只运行源码检查和单元测试。Windows
-构建会使用固定版本的 `resedit` 把 ICO 写入 launcher 的 PE 资源，因为 Deno 2.9 的 `--icon` 只复制旁置
-`AppIcon.ico`。Windows 发布产物是完整应用目录
-ZIP，无需安装或管理员权限；关闭应用后用新目录覆盖即可更新。GUI 行为仍需在目标系统验证。
+Deno 会按目标平台下载并校验对应 backend；CEF 首次构建较慢且产物体积较大，WebView2 使用系统 Runtime。
+两个 Windows ZIP 与两个 macOS `.app` tar.gz 均在 Linux 交叉编译打包；目标系统 CI 只运行源码检查和
+单元测试。Windows 构建会使用固定版本的 `resedit` 把 ICO 写入 launcher 的 PE 资源，因为 Deno 2.9 的
+`--icon` 只复制旁置 `AppIcon.ico`。Windows 发布产物都是完整应用目录 ZIP，无需安装或管理员权限；关闭
+应用后用同后端的新目录覆盖即可更新。GUI 行为仍需在目标系统验证。
 
 Linux 构建和 AppImage 任务继续保留给源码用户自行执行；CI 与 `latest` Release 不提供 Linux 预构建包。
 
 ## Latest Release
 
 固定下载地址：[`releases/tag/latest`](https://github.com/Diluka/dsh-desktop-app/releases/tag/latest)。每次成功的
-`main` 流水线会覆盖其中的同名分发产物。
+`main` 流水线会覆盖其中的同名分发产物。各文件的用途与安装方式见
+[发布制品说明](docs/RELEASE_ARTIFACTS.md)。
 
-`main` 的 CI 依次执行四平台测试、Windows/macOS 三种分发产物构建和 `latest` Release
+`main` 的 CI 依次执行四平台测试、Windows/macOS 四种分发产物构建和 `latest` Release
 更新。只有前一阶段全部成功才会进入下一阶段；任何测试或打包失败都会保留上一版 Release。Pull Request
 只运行测试，不发布产物。
 
@@ -139,14 +148,16 @@ password、passphrase、token、Bearer 凭据和私钥标记做持久化前脱�
 - 主机密钥校验沿用用户 `.ssh/config` 与 OpenSSH 默认策略，应用不会降低现有策略。
 - 启动 OpenSSH 并完整继承其环境需要运行时 `run/env` 权限；代码只启动 `ssh`。
 - Pino 加载时只额外开放 `sys.hostname`；文件日志的基础字段包含进程 `pid`。
-- Windows 通过 FFI 加载系统目录中的 `user32.dll`，用于给原生窗口设置已打包的应用图标；远端页面没有
-  FFI binding。
+- Windows CEF 通过 FFI 加载系统目录中的 `user32.dll`，用于给原生窗口设置已打包的应用图标；远端页面
+  没有 FFI binding。
 - 远端 DSH 页面加载前会移除配置、删除和连接 bindings。
 
 ## 项目结构
 
 ```text
-main.ts             桌面生命周期、bindings 与安全导航
+app.ts              共享桌面生命周期、bindings 与安全导航
+main.ts             CEF 入口
+main_webview.ts     WebView2 入口
 assets/             SVG 源图、1024px PNG、Windows ICO 与 macOS ICNS
 scripts/            平台打包辅助脚本
 src/profiles.ts     服务器配置校验和持久化

@@ -709,7 +709,8 @@
             </div>
           </div>
           <div class="runtime-note">
-            <div class="runtime-row"><span>浏览器</span><strong>Chromium / CEF</strong></div>
+            <div
+              class="runtime-row"><span>浏览器</span><strong id="browser-backend">Chromium / CEF</strong></div>
             <div class="runtime-row"><span>连接</span><strong>OpenSSH</strong></div>
           </div>
         </div>
@@ -875,6 +876,7 @@
           state.profiles = data.profiles;
           state.ssh = data.ssh;
           document.getElementById("log-directory").textContent = data.logDirectory;
+          document.getElementById("browser-backend").textContent = data.browserBackend;
           renderSshStatus();
           renderProfiles();
           if (data.startupNotice) showNotice(data.startupNotice);
