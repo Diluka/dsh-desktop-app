@@ -10,7 +10,9 @@
     "test": "deno test --permit-no-files --permission-set=app",
     "check": "deno fmt --check && deno lint && deno check --desktop main.ts && deno test --permit-no-files --permission-set=app",
     "build:linux": "deno desktop --permission-set=app --target x86_64-unknown-linux-gnu --output dist/linux/dsh-desktop main.ts",
-    "build:windows": "deno desktop --permission-set=app --target x86_64-pc-windows-msvc --output dist/windows/DshDesktop main.ts"
+    "build:windows": "deno desktop --permission-set=app --target x86_64-pc-windows-msvc --output dist/windows/DshDesktop main.ts",
+    "package:linux": "deno desktop --permission-set=app --target x86_64-unknown-linux-gnu --output dist/linux/DSH-Desktop.AppImage main.ts",
+    "package:windows": "deno desktop --permission-set=app --target x86_64-pc-windows-msvc --output dist/windows/DSH-Desktop.msi main.ts"
   },
   "permissions": {
     "app": {
