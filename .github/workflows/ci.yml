@@ -62,11 +62,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Linux x86_64
-            os: ubuntu-24.04
-            package_task: package:linux
-            artifact_name: dsh-desktop-linux-x86_64
-            artifact_path: dist/linux/DSH-Desktop.AppImage
           - name: Windows x86_64
             os: windows-2022
             package_task: package:windows
@@ -130,7 +125,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -s release-assets/DSH-Desktop.AppImage
           test -s release-assets/DSH-Desktop.msi
           test -s release-assets/DSH-Desktop-aarch64.dmg
           test -s release-assets/DSH-Desktop-x86_64.dmg
@@ -149,7 +143,6 @@ jobs:
           fi
 
           assets=(
-            release-assets/DSH-Desktop.AppImage
             release-assets/DSH-Desktop.msi
             release-assets/DSH-Desktop-aarch64.dmg
             release-assets/DSH-Desktop-x86_64.dmg
@@ -157,13 +150,17 @@ jobs:
           cat > release-notes.md <<EOF
           This rolling release was built from commit \`${GITHUB_SHA}\`.
 
-          It is updated only after all Linux, Windows, macOS arm64, and macOS x86_64
-          test jobs and installer builds complete successfully.
+          It is updated only after all Linux, Windows, and macOS test jobs plus all
+          Windows and macOS installer builds complete successfully.
 
           Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
           EOF
 
           if gh release view latest >/dev/null 2>&1; then
+            existing_assets=$(gh release view latest --json assets --jq '.assets[].name')
+            if grep -Fxq "DSH-Desktop.AppImage" <<<"${existing_assets}"; then
+              gh release delete-asset latest DSH-Desktop.AppImage --yes
+            fi
             gh release upload latest "${assets[@]}" --clobber
             git tag --force latest "${GITHUB_SHA}"
             git push origin refs/tags/latest --force
