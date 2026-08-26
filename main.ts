@@ -38,12 +38,7 @@ logger.info({
 const shellUrl = resolveShellUrl();
 Deno.serve({ hostname: "127.0.0.1" }, handleShellRequest);
 const nativeWindowTitle = Deno.build.os === "windows" ? `DSH Desktop ${Deno.pid}` : "DSH Desktop";
-const window = new Deno.BrowserWindow({
-  title: nativeWindowTitle,
-  width: 1180,
-  height: 760,
-});
-window.hide();
+const window = new Deno.BrowserWindow({ title: nativeWindowTitle });
 let releaseWindowIcon: (() => void) | undefined;
 if (Deno.build.os === "windows") {
   try {
@@ -81,7 +76,6 @@ addEventListener("unhandledrejection", (event) => {
     "Unhandled application rejection",
   );
 });
-window.show();
 
 function bindShell(): void {
   if (shellBindingsActive) return;
