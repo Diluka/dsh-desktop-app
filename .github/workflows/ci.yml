@@ -12,14 +12,50 @@ permissions:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   DENO_NO_UPDATE_CHECK: "1"
 
 jobs:
-  platform:
-    name: ${{ matrix.name }}
+  test:
+    name: Test / ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86_64
+            os: ubuntu-24.04
+          - name: Windows x86_64
+            os: windows-2022
+          - name: macOS arm64
+            os: macos-14
+          - name: macOS x86_64
+            os: macos-15-intel
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Install Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.9.5
+
+      - name: Show tool versions
+        run: |
+          deno --version
+          ssh -V
+
+      - name: Run source checks and unit tests
+        run: deno task check
+
+  package:
+    name: Package / ${{ matrix.name }}
+    if: github.event_name != 'pull_request'
+    needs: test
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
@@ -56,20 +92,10 @@ jobs:
         with:
           deno-version: v2.9.5
 
-      - name: Show tool versions
-        run: |
-          deno --version
-          ssh -V
-
-      - name: Run source checks and unit tests
-        run: deno task check
-
       - name: Build native desktop installer
-        if: github.event_name != 'pull_request'
         run: deno task ${{ matrix.package_task }}
 
       - name: Upload desktop installer
-        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact_name }}
@@ -77,3 +103,78 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
+
+  release:
+    name: Update latest release
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Download all installers
+        uses: actions/download-artifact@v8
+        with:
+          pattern: dsh-desktop-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Verify release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s release-assets/DSH-Desktop.AppImage
+          test -s release-assets/DSH-Desktop.msi
+          test -s release-assets/DSH-Desktop-aarch64.dmg
+          test -s release-assets/DSH-Desktop-x86_64.dmg
+          ls -lh release-assets
+
+      - name: Create or replace latest release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          current_main=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')
+          if [[ "${current_main}" != "${GITHUB_SHA}" ]]; then
+            echo "::notice::Skipping stale release for ${GITHUB_SHA}; main is ${current_main}."
+            exit 0
+          fi
+
+          assets=(
+            release-assets/DSH-Desktop.AppImage
+            release-assets/DSH-Desktop.msi
+            release-assets/DSH-Desktop-aarch64.dmg
+            release-assets/DSH-Desktop-x86_64.dmg
+          )
+          cat > release-notes.md <<EOF
+          This rolling release was built from commit \`${GITHUB_SHA}\`.
+
+          It is updated only after all Linux, Windows, macOS arm64, and macOS x86_64
+          test jobs and installer builds complete successfully.
+
+          Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          EOF
+
+          if gh release view latest >/dev/null 2>&1; then
+            gh release upload latest "${assets[@]}" --clobber
+            git tag --force latest "${GITHUB_SHA}"
+            git push origin refs/tags/latest --force
+            gh release edit latest \
+              --title "DSH Desktop - Latest Successful Build" \
+              --notes-file release-notes.md \
+              --latest
+          else
+            gh release create latest "${assets[@]}" \
+              --target "${GITHUB_SHA}" \
+              --title "DSH Desktop - Latest Successful Build" \
+              --notes-file release-notes.md \
+              --latest
+          fi

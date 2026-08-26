@@ -89,6 +89,15 @@ deno task package:macos:x86_64   # Intel DMG
 Deno 会按目标平台下载并校验对应的 CEF 后端，因此首次构建较慢且产物体积较大。目录包可以交叉构建；DMG
 依赖 macOS 的 `hdiutil`，由对应的 GitHub macOS runner 原生生成。GUI 行为仍需在目标系统验证。
 
+## Latest Release
+
+固定下载地址：[`releases/tag/latest`](https://github.com/Diluka/dsh-desktop-app/releases/tag/latest)。每次成功的
+`main` 流水线会覆盖其中的同名安装包。
+
+`main` 的 CI 依次执行四平台测试、四平台安装包构建和 `latest` Release
+更新。只有前一阶段全部成功才会进入下一阶段；任何测试或打包失败都会保留上一版 Release。Pull Request
+只运行测试，不发布安装包。
+
 ## 日志
 
 每次运行使用一个 `sessionId`，日志按天写入 JSONL：
