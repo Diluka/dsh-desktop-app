@@ -7,338 +7,323 @@ export const SHELL_HTML = `<!doctype html>
     <title>DSH Desktop</title>
     <style>
       :root {
-        --ink: #172019;
-        --ink-soft: #47534a;
-        --paper: #f1eadb;
-        --paper-light: #fffaf0;
-        --line: #b8b09e;
-        --moss: #385847;
-        --moss-dark: #203b2d;
-        --signal: #ee6b3b;
-        --signal-dark: #b83f1d;
-        --warning: #8a5317;
-        --shadow: 0 24px 70px rgba(42, 49, 39, 0.16);
-        font-family: "Aptos", "Segoe UI Variable", "Noto Sans CJK SC", sans-serif;
-        color: var(--ink);
-        background: var(--paper);
+        color-scheme: light;
+        --bg: #ffffff;
+        --sidebar: #f7f8fa;
+        --surface: #ffffff;
+        --surface-hover: rgba(38, 49, 72, 0.04);
+        --surface-selected: rgba(38, 49, 72, 0.06);
+        --text: #0f1115;
+        --text-secondary: #61666b;
+        --text-tertiary: #72777e;
+        --border: rgba(0, 0, 0, 0.1);
+        --brand: #416bea;
+        --brand-hover: #345bce;
+        --success: #168f61;
+        --danger: #c73a3a;
+        --warning-bg: #fff8e6;
+        --warning-border: #e7c873;
+        --warning-text: #654b14;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
+        color: var(--text);
+        background: var(--bg);
       }
 
       * { box-sizing: border-box; }
       [hidden] { display: none !important; }
-
-      body {
-        margin: 0;
-        min-width: 320px;
-        min-height: 100vh;
-        background:
-          linear-gradient(115deg, rgba(255, 250, 240, 0.94), rgba(236, 225, 204, 0.92)),
-          repeating-linear-gradient(0deg, transparent 0 31px, rgba(23, 32, 25, 0.07) 31px 32px),
-          repeating-linear-gradient(90deg, transparent 0 31px, rgba(23, 32, 25, 0.07) 31px 32px);
-      }
-
+      html, body { margin: 0; min-width: 320px; min-height: 100%; }
+      body { min-height: 100vh; background: var(--bg); }
       button, input { font: inherit; }
       button { cursor: pointer; }
-      button:disabled { cursor: not-allowed; opacity: 0.48; }
+      button:disabled { cursor: not-allowed; opacity: 0.45; }
+      button:focus-visible, input:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(65, 107, 234, 0.2);
+      }
 
       .shell {
         min-height: 100vh;
         display: grid;
-        grid-template-columns: minmax(290px, 0.78fr) minmax(480px, 1.55fr);
+        grid-template-columns: 280px minmax(0, 1fr);
       }
 
       .masthead {
-        position: relative;
+        position: sticky;
+        top: 0;
+        height: 100vh;
         display: flex;
-        min-height: 100vh;
         flex-direction: column;
         justify-content: space-between;
-        overflow: hidden;
-        padding: clamp(32px, 5vw, 72px);
-        color: #f8f1e4;
-        background:
-          radial-gradient(circle at 82% 16%, rgba(238, 107, 59, 0.9) 0 5px, transparent 6px),
-          radial-gradient(circle at 82% 16%, transparent 0 62px, rgba(238, 107, 59, 0.45) 63px 64px, transparent 65px),
-          linear-gradient(145deg, #13271c 0%, #294c38 58%, #172d21 100%);
-      }
-
-      .masthead::after {
-        content: "";
-        position: absolute;
-        width: 360px;
-        height: 360px;
-        right: -180px;
-        bottom: -170px;
-        border: 1px solid rgba(248, 241, 228, 0.28);
-        border-radius: 50%;
-        box-shadow: 0 0 0 52px rgba(248, 241, 228, 0.035), 0 0 0 104px rgba(248, 241, 228, 0.025);
+        padding: 24px 16px 18px;
+        border-right: 1px solid var(--border);
+        background: var(--sidebar);
       }
 
       .brand-mark {
-        display: inline-flex;
+        display: flex;
         align-items: center;
-        gap: 12px;
-        font-family: "Cascadia Code", "JetBrains Mono", monospace;
-        font-size: 12px;
-        font-weight: 700;
-        letter-spacing: 0.16em;
-        text-transform: uppercase;
+        gap: 8px;
+        padding: 0 2px;
+        font-size: 20px;
+        font-weight: 600;
+        letter-spacing: -0.03em;
       }
 
-      .brand-mark::before {
-        content: "";
-        width: 34px;
-        height: 10px;
-        border-top: 2px solid var(--signal);
-        border-bottom: 2px solid var(--signal);
+      .brand-mark::after {
+        content: "DESKTOP";
+        padding: 1px 4px;
+        border: 1px solid var(--text);
+        border-radius: 3px;
+        font-size: 8px;
+        font-weight: 600;
+        line-height: 12px;
+        letter-spacing: 0.04em;
       }
 
-      .masthead-copy { position: relative; z-index: 1; max-width: 560px; }
+      .masthead-copy {
+        margin-top: 34px;
+        padding: 12px;
+        border-radius: 12px;
+        background: var(--surface-selected);
+      }
+
       .mode-label {
-        margin: 0 0 22px;
-        color: #f5aa82;
-        font-family: "Cascadia Code", "JetBrains Mono", monospace;
+        margin: 0 0 3px;
+        color: var(--text-tertiary);
         font-size: 12px;
-        letter-spacing: 0.2em;
-        text-transform: uppercase;
+        line-height: 18px;
       }
 
       h1 {
         margin: 0;
-        max-width: 9ch;
-        font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
-        font-size: clamp(46px, 6vw, 82px);
-        font-weight: 600;
-        line-height: 0.96;
-        letter-spacing: -0.045em;
+        font-size: 14px;
+        font-weight: 500;
+        line-height: 22px;
       }
 
       .masthead-copy > p:last-child {
-        max-width: 38ch;
-        margin: 28px 0 0;
-        color: rgba(248, 241, 228, 0.74);
-        font-size: 15px;
-        line-height: 1.7;
+        margin: 3px 0 0;
+        color: var(--text-secondary);
+        font-size: 12px;
+        line-height: 18px;
       }
 
       .runtime-note {
-        position: relative;
-        z-index: 1;
         display: grid;
-        gap: 12px;
-        padding-top: 24px;
-        border-top: 1px solid rgba(248, 241, 228, 0.22);
+        gap: 9px;
+        padding: 14px 8px 0;
+        border-top: 1px solid var(--border);
       }
 
       .runtime-row {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 16px;
-        color: rgba(248, 241, 228, 0.72);
-        font-size: 12px;
+        gap: 12px;
+        color: var(--text-tertiary);
+        font-size: 11px;
       }
 
       .runtime-row strong {
-        color: #fffaf0;
-        font-family: "Cascadia Code", "JetBrains Mono", monospace;
-        font-weight: 600;
+        color: var(--text-secondary);
+        font-weight: 500;
       }
 
       .workspace {
         min-width: 0;
-        padding: clamp(26px, 4.5vw, 68px);
+        padding: 56px 48px 40px;
         overflow: auto;
       }
 
-      .workspace-inner { max-width: 980px; margin: 0 auto; }
+      .workspace-inner { max-width: 880px; margin: 0 auto; }
       .workspace-header {
         display: flex;
-        align-items: flex-end;
+        align-items: center;
         justify-content: space-between;
         gap: 24px;
-        margin-bottom: 30px;
-      }
-
-      .eyebrow {
-        margin: 0 0 9px;
-        color: var(--signal-dark);
-        font-family: "Cascadia Code", "JetBrains Mono", monospace;
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.17em;
-        text-transform: uppercase;
+        margin-bottom: 28px;
       }
 
       h2 {
         margin: 0;
-        font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
-        font-size: clamp(32px, 4vw, 52px);
+        font-size: 28px;
         font-weight: 600;
-        line-height: 1;
-        letter-spacing: -0.035em;
+        line-height: 36px;
+        letter-spacing: -0.025em;
+      }
+
+      .page-description, .section-description {
+        margin: 5px 0 0;
+        color: var(--text-secondary);
+        font-size: 14px;
+        line-height: 22px;
       }
 
       .button {
-        min-height: 44px;
-        padding: 0 18px;
-        border: 1px solid var(--ink);
-        border-radius: 2px;
-        color: var(--paper-light);
-        background: var(--ink);
-        font-weight: 700;
-        transition: transform 150ms ease, box-shadow 150ms ease, background 150ms ease;
+        min-height: 38px;
+        padding: 7px 16px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        color: var(--text);
+        background: var(--surface);
+        font-size: 14px;
+        font-weight: 500;
+        line-height: 22px;
+        transition: background 120ms ease, border-color 120ms ease;
       }
 
-      .button:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 4px 4px 0 var(--signal); }
-      .button.secondary { color: var(--ink); background: transparent; }
-      .button.secondary:hover:not(:disabled) { box-shadow: 4px 4px 0 rgba(23, 32, 25, 0.18); }
-      .button.signal { border-color: var(--signal-dark); background: var(--signal); }
-      .button.small { min-height: 36px; padding: 0 13px; font-size: 13px; }
+      .button:hover:not(:disabled) { background: var(--surface-hover); border-color: rgba(0, 0, 0, 0.18); }
+      .button.primary {
+        border-color: var(--brand);
+        color: #ffffff;
+        background: var(--brand);
+      }
+      .button.primary:hover:not(:disabled) {
+        border-color: var(--brand-hover);
+        background: var(--brand-hover);
+      }
+      .button.secondary { background: transparent; }
+      .button.small { min-height: 34px; padding: 5px 13px; font-size: 13px; }
 
       .notice {
-        margin-bottom: 22px;
-        padding: 16px 18px;
-        border-left: 4px solid var(--warning);
-        color: #5d3c17;
-        background: #f7dfb6;
-        line-height: 1.55;
+        margin-bottom: 20px;
+        padding: 12px 14px;
+        border: 1px solid var(--warning-border);
+        border-radius: 10px;
+        color: var(--warning-text);
+        background: var(--warning-bg);
+        font-size: 13px;
+        line-height: 20px;
       }
 
-      .notice strong { display: block; margin-bottom: 4px; }
+      .notice strong { display: block; margin-bottom: 2px; font-weight: 600; }
       .summary-line {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 16px;
-        margin: 0 0 14px;
-        color: var(--ink-soft);
+        margin: 0 0 12px;
+        color: var(--text-secondary);
         font-size: 13px;
       }
 
-      .status {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        font-family: "Cascadia Code", "JetBrains Mono", monospace;
-      }
+      .status { display: inline-flex; align-items: center; gap: 7px; }
+      .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--danger); }
+      .status.available .status-dot { background: var(--success); }
 
-      .status-dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: #a33d26;
-        box-shadow: 0 0 0 4px rgba(163, 61, 38, 0.12);
-      }
-
-      .status.available .status-dot {
-        background: #357454;
-        box-shadow: 0 0 0 4px rgba(53, 116, 84, 0.14);
-      }
-
-      .server-list { display: grid; gap: 13px; }
+      .server-list { display: grid; gap: 10px; }
       .server-card {
         display: grid;
         grid-template-columns: minmax(0, 1fr) auto;
         align-items: center;
-        gap: 22px;
-        padding: 21px 22px;
-        border: 1px solid var(--line);
-        border-radius: 3px;
-        background: rgba(255, 250, 240, 0.78);
-        box-shadow: 0 8px 24px rgba(57, 64, 51, 0.05);
-        animation: rise 420ms both;
+        gap: 20px;
+        padding: 16px 18px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--surface);
+        transition: background 120ms ease, border-color 120ms ease;
       }
 
-      .server-card:hover { border-color: #716c60; background: var(--paper-light); }
-      .server-name {
-        margin: 0 0 8px;
-        font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
-        font-size: 24px;
-        font-weight: 600;
+      .server-card:hover { border-color: rgba(0, 0, 0, 0.16); background: var(--surface-hover); }
+      .server-name { margin: 0 0 4px; font-size: 15px; font-weight: 500; line-height: 22px; }
+      .server-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 14px;
+        color: var(--text-secondary);
+        font-size: 12px;
+        line-height: 18px;
       }
-
-      .server-meta { display: flex; flex-wrap: wrap; gap: 8px 14px; color: var(--ink-soft); font-size: 12px; }
       .server-meta code, .log-path {
-        font-family: "Cascadia Code", "JetBrains Mono", monospace;
+        font-family: "SF Mono", "JetBrains Mono", "Fira Code", Consolas, monospace;
         overflow-wrap: anywhere;
       }
 
-      .server-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+      .server-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
       .text-button {
-        padding: 7px 8px;
+        padding: 6px 8px;
         border: 0;
-        color: var(--ink-soft);
+        border-radius: 8px;
+        color: var(--text-secondary);
         background: transparent;
-        font-size: 12px;
-        font-weight: 700;
+        font-size: 13px;
+        line-height: 20px;
+        white-space: nowrap;
       }
-      .text-button:hover { color: var(--signal-dark); }
+      .text-button:hover { color: var(--text); background: var(--surface-selected); }
+      .text-button.danger:hover { color: var(--danger); }
 
       .empty-state {
-        padding: clamp(34px, 7vw, 76px) 26px;
-        border: 1px dashed #8e8779;
+        padding: 52px 24px;
+        border: 1px solid var(--border);
+        border-radius: 16px;
         text-align: center;
-        background: rgba(255, 250, 240, 0.45);
+        background: var(--surface);
       }
 
-      .empty-state strong {
-        display: block;
-        margin-bottom: 10px;
-        font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
-        font-size: 28px;
+      .empty-state strong { display: block; margin-bottom: 6px; font-size: 16px; font-weight: 600; }
+      .empty-state p {
+        max-width: 48ch;
+        margin: 0 auto 20px;
+        color: var(--text-secondary);
+        font-size: 14px;
+        line-height: 22px;
       }
-
-      .empty-state p { max-width: 46ch; margin: 0 auto 22px; color: var(--ink-soft); line-height: 1.6; }
 
       .editor {
-        margin-top: 22px;
-        padding: clamp(22px, 4vw, 34px);
-        border: 1px solid var(--ink);
-        background: var(--paper-light);
-        box-shadow: var(--shadow);
-        animation: rise 240ms both;
+        position: relative;
+        margin-top: 24px;
+        padding: 24px;
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        background: var(--surface);
+        box-shadow: 0 12px 36px rgba(31, 35, 41, 0.08);
       }
 
-      .editor-header { display: flex; justify-content: space-between; gap: 18px; margin-bottom: 24px; }
-      .editor h3 {
-        margin: 0;
-        font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
-        font-size: 30px;
-        font-weight: 600;
-      }
-
+      .editor-header { padding-right: 44px; margin-bottom: 22px; }
+      .editor-header > .text-button { position: absolute; top: 18px; right: 16px; }
+      .editor h3 { margin: 0; font-size: 18px; font-weight: 600; line-height: 26px; }
       .form-grid { display: grid; grid-template-columns: 1fr 0.55fr; gap: 18px; }
       .field:first-child { grid-column: 1 / -1; }
       .field label {
         display: block;
         margin-bottom: 7px;
-        font-size: 12px;
-        font-weight: 800;
-        letter-spacing: 0.04em;
+        color: var(--text);
+        font-size: 13px;
+        font-weight: 500;
+        line-height: 20px;
       }
 
       .field input {
         width: 100%;
-        height: 46px;
-        padding: 0 13px;
-        border: 1px solid #878071;
-        border-radius: 0;
+        height: 40px;
+        padding: 0 12px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
         outline: none;
-        color: var(--ink);
-        background: #fffdf7;
+        color: var(--text);
+        background: var(--surface);
       }
-
-      .field input:focus { border-color: var(--signal-dark); box-shadow: 0 0 0 3px rgba(238, 107, 59, 0.16); }
-      .field small { display: block; margin-top: 7px; color: var(--ink-soft); line-height: 1.45; }
-      .form-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 25px; }
+      .field input:hover { border-color: rgba(0, 0, 0, 0.18); }
+      .field input:focus { border-color: var(--brand); }
+      .field input::placeholder { color: #a1a5ab; }
+      .field small {
+        display: block;
+        margin-top: 6px;
+        color: var(--text-tertiary);
+        font-size: 12px;
+        line-height: 18px;
+      }
+      .form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
 
       .diagnostics {
-        margin-top: 26px;
-        padding-top: 17px;
-        border-top: 1px solid var(--line);
-        color: var(--ink-soft);
+        margin-top: 28px;
+        padding-top: 16px;
+        border-top: 1px solid var(--border);
+        color: var(--text-tertiary);
         font-size: 11px;
-        line-height: 1.6;
+        line-height: 18px;
       }
 
       .toast {
@@ -346,13 +331,14 @@ export const SHELL_HTML = `<!doctype html>
         z-index: 20;
         right: 24px;
         bottom: 24px;
-        max-width: min(440px, calc(100vw - 48px));
-        padding: 15px 18px;
-        border-left: 4px solid var(--signal);
-        color: #fffaf0;
-        background: var(--ink);
-        box-shadow: var(--shadow);
-        animation: rise 220ms both;
+        max-width: min(420px, calc(100vw - 48px));
+        padding: 11px 14px;
+        border-radius: 10px;
+        color: #ffffff;
+        background: var(--text);
+        box-shadow: 0 8px 24px rgba(15, 17, 21, 0.16);
+        font-size: 13px;
+        line-height: 20px;
       }
 
       .connecting {
@@ -362,60 +348,63 @@ export const SHELL_HTML = `<!doctype html>
         display: grid;
         place-items: center;
         padding: 24px;
-        background: rgba(18, 29, 22, 0.88);
-        backdrop-filter: blur(9px);
+        background: rgba(15, 17, 21, 0.24);
       }
 
       .connecting-card {
-        width: min(520px, 100%);
-        padding: 38px;
-        color: var(--paper-light);
-        background: var(--moss-dark);
-        border: 1px solid rgba(255, 250, 240, 0.22);
-        box-shadow: var(--shadow);
+        width: min(460px, 100%);
+        padding: 26px;
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        color: var(--text);
+        background: var(--surface);
+        box-shadow: 0 18px 56px rgba(15, 17, 21, 0.18);
       }
 
-      .track { height: 3px; margin: 25px 0; overflow: hidden; background: rgba(255, 250, 240, 0.16); }
-      .track::after {
-        content: "";
-        display: block;
-        width: 42%;
-        height: 100%;
-        background: var(--signal);
-        animation: scan 1.2s ease-in-out infinite;
+      .connecting-header { display: flex; align-items: flex-start; gap: 14px; }
+      .track {
+        flex: 0 0 auto;
+        width: 20px;
+        height: 20px;
+        margin-top: 3px;
+        border: 2px solid rgba(65, 107, 234, 0.22);
+        border-top-color: var(--brand);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
       }
-
-      .connecting-card h3 {
-        margin: 0 0 10px;
-        font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
-        font-size: 34px;
-        font-weight: 600;
-      }
-
-      .connecting-card p { margin: 0; color: rgba(255, 250, 240, 0.7); line-height: 1.6; }
+      .connecting-card h3 { margin: 0 0 4px; font-size: 18px; font-weight: 600; line-height: 26px; }
+      .connecting-card p { margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 20px; }
       .connecting-steps {
-        margin: 22px 0 0;
+        display: grid;
+        gap: 8px;
+        margin: 20px 0 0 34px;
         padding: 0;
         list-style: none;
-        color: rgba(255, 250, 240, 0.72);
-        font-family: "Cascadia Code", "JetBrains Mono", monospace;
+        color: var(--text-secondary);
         font-size: 12px;
-        line-height: 2;
+        line-height: 18px;
       }
+      .connecting-steps li::before { content: "·"; margin-right: 7px; color: var(--text-tertiary); }
 
-      @keyframes rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
-      @keyframes scan { from { transform: translateX(-110%); } to { transform: translateX(350%); } }
+      @keyframes spin { to { transform: rotate(360deg); } }
 
-      @media (max-width: 900px) {
+      @media (max-width: 760px) {
         .shell { grid-template-columns: 1fr; }
-        .masthead { min-height: 390px; padding: 32px; }
-        .masthead-copy { margin: 44px 0; }
-        h1 { max-width: 12ch; font-size: clamp(44px, 11vw, 68px); }
-        .workspace { padding: 34px 24px 52px; }
+        .masthead {
+          position: static;
+          height: auto;
+          padding: 16px 18px;
+          border-right: 0;
+          border-bottom: 1px solid var(--border);
+        }
+        .masthead-copy { margin-top: 18px; }
+        .runtime-note { display: none; }
+        .workspace { padding: 32px 20px 40px; }
       }
 
       @media (max-width: 620px) {
         .workspace-header { align-items: flex-start; flex-direction: column; }
+        .workspace-header .button { width: 100%; }
         .server-card { grid-template-columns: 1fr; }
         .server-actions { justify-content: flex-start; }
         .form-grid { grid-template-columns: 1fr; }
@@ -425,22 +414,24 @@ export const SHELL_HTML = `<!doctype html>
       }
 
       @media (prefers-reduced-motion: reduce) {
-        *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
+        .track { animation: none; }
       }
     </style>
   </head>
   <body>
     <div class="shell">
       <aside class="masthead">
-        <div class="brand-mark">DSH Desktop</div>
-        <div class="masthead-copy">
-          <p class="mode-label">Remote mode / 01</p>
-          <h1>穿过隧道，回到 DSH。</h1>
-          <p>复用本机 OpenSSH 与 <code>~/.ssh/config</code>，建立只绑定回环地址的端口转发，再由内置 Chromium 接管工作界面。</p>
+        <div>
+          <div class="brand-mark">deepseek</div>
+          <div class="masthead-copy">
+            <p class="mode-label">连接方式</p>
+            <h1>远程模式</h1>
+            <p>通过本机 OpenSSH 连接远程 DSH Web。</p>
+          </div>
         </div>
         <div class="runtime-note">
-          <div class="runtime-row"><span>Renderer</span><strong>Chromium / CEF</strong></div>
-          <div class="runtime-row"><span>Transport</span><strong>OpenSSH LocalForward</strong></div>
+          <div class="runtime-row"><span>浏览器</span><strong>Chromium / CEF</strong></div>
+          <div class="runtime-row"><span>连接</span><strong>OpenSSH</strong></div>
         </div>
       </aside>
 
@@ -448,10 +439,10 @@ export const SHELL_HTML = `<!doctype html>
         <div class="workspace-inner">
           <header class="workspace-header">
             <div>
-              <p class="eyebrow">Connection desk</p>
               <h2>选择服务器</h2>
+              <p class="page-description">通过 SSH Host 建立安全连接。</p>
             </div>
-            <button id="add-server" class="button signal" type="button">添加服务器</button>
+            <button id="add-server" class="button primary" type="button">添加服务器</button>
           </header>
 
           <div id="notice" class="notice" role="alert" hidden></div>
@@ -462,16 +453,16 @@ export const SHELL_HTML = `<!doctype html>
 
           <section id="server-list" class="server-list" aria-live="polite"></section>
           <section id="empty-state" class="empty-state" hidden>
-            <strong>还没有远程入口</strong>
-            <p>添加一个 <code>~/.ssh/config</code> 中的 Host 别名。SSH 用户、端口、密钥和跳板机继续由 OpenSSH 管理。</p>
-            <button id="empty-add" class="button" type="button">添加第一台服务器</button>
+            <strong>还没有服务器</strong>
+            <p>添加一个 <code>~/.ssh/config</code> 中的 Host。用户、端口、密钥和跳板机继续由 OpenSSH 管理。</p>
+            <button id="empty-add" class="button primary" type="button">添加服务器</button>
           </section>
 
           <section id="editor" class="editor" aria-labelledby="editor-title" hidden>
             <div class="editor-header">
               <div>
-                <p class="eyebrow">Remote profile</p>
                 <h3 id="editor-title">添加服务器</h3>
+                <p class="section-description">保存 DSH 显示名称、SSH Host 和远端 Web 端口。</p>
               </div>
               <button id="close-editor" class="text-button" type="button">关闭</button>
             </div>
@@ -485,24 +476,24 @@ export const SHELL_HTML = `<!doctype html>
                 <div class="field">
                   <label for="ssh-target">SSH Host / 别名</label>
                   <input id="ssh-target" name="sshTarget" required maxlength="255" placeholder="prod-dsh" autocomplete="off" spellcheck="false">
-                  <small>直接交给本机 <code>ssh</code>，会读取 <code>~/.ssh/config</code>。</small>
+                  <small>直接交给本机 <code>ssh</code>，并读取 <code>~/.ssh/config</code>。</small>
                 </div>
                 <div class="field">
                   <label for="remote-port">DSH Web 端口</label>
                   <input id="remote-port" name="remotePort" type="number" required min="1" max="65535" value="3080" inputmode="numeric">
-                  <small>远端默认是 <code>3080</code>。</small>
+                  <small>默认端口为 <code>3080</code>。</small>
                 </div>
               </div>
               <div class="form-actions">
                 <button id="cancel-editor" class="button secondary" type="button">取消</button>
-                <button class="button" type="submit">保存服务器</button>
+                <button class="button primary" type="submit">保存</button>
               </div>
             </form>
           </section>
 
           <footer class="diagnostics">
             <div>日志目录：<code id="log-directory" class="log-path">正在初始化...</code></div>
-            <div>认证支持 <code>.ssh/config</code>、密钥与 <code>ssh-agent</code>；首版不处理密码交互。</div>
+            <div>认证使用 <code>.ssh/config</code>、密钥或 <code>ssh-agent</code>；应用不处理密码。</div>
           </footer>
         </div>
       </main>
@@ -511,14 +502,17 @@ export const SHELL_HTML = `<!doctype html>
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
     <div id="connecting" class="connecting" role="dialog" aria-modal="true" aria-labelledby="connecting-title" hidden>
       <div class="connecting-card">
-        <p class="eyebrow">Secure handoff</p>
-        <h3 id="connecting-title">正在建立 SSH 隧道</h3>
-        <p id="connecting-target">正在准备远程连接...</p>
-        <div class="track"></div>
+        <div class="connecting-header">
+          <div class="track" aria-hidden="true"></div>
+          <div>
+            <h3 id="connecting-title">正在连接</h3>
+            <p id="connecting-target">正在准备远程连接...</p>
+          </div>
+        </div>
         <ul class="connecting-steps">
-          <li>01 · 读取本机 .ssh/config</li>
-          <li>02 · 建立回环端口转发</li>
-          <li>03 · 验证远端 DSH Web</li>
+          <li>读取本机 .ssh/config</li>
+          <li>建立回环端口转发</li>
+          <li>验证远端 DSH Web</li>
         </ul>
       </div>
     </div>
@@ -564,9 +558,10 @@ export const SHELL_HTML = `<!doctype html>
 
         function renderSshStatus() {
           var element = document.getElementById("ssh-status");
+          var version = state.ssh.version || "";
           element.classList.toggle("available", state.ssh.available);
           element.lastElementChild.textContent = state.ssh.available
-            ? "OpenSSH " + (state.ssh.version || "可用")
+            ? version.indexOf("OpenSSH") === 0 ? version : "OpenSSH " + (version || "可用")
             : "OpenSSH 未安装";
           if (!state.ssh.available) {
             showNotice(state.ssh.installHelp || "未找到 OpenSSH Client，请安装后重启应用。");
@@ -580,10 +575,9 @@ export const SHELL_HTML = `<!doctype html>
             ? state.profiles.length + " 个远程入口"
             : "等待添加远程入口";
 
-          state.profiles.forEach(function (profile, index) {
+          state.profiles.forEach(function (profile) {
             var card = document.createElement("article");
             card.className = "server-card";
-            card.style.animationDelay = String(index * 45) + "ms";
 
             var details = document.createElement("div");
             var title = document.createElement("h3");
@@ -604,8 +598,8 @@ export const SHELL_HTML = `<!doctype html>
             actions.className = "server-actions";
             actions.append(
               actionButton("编辑", "text-button", function () { openEditor(profile); }),
-              actionButton("删除", "text-button", function () { deleteProfile(profile); }),
-              actionButton("连接", "button small", function () { connectProfile(profile); }, !state.ssh.available)
+              actionButton("删除", "text-button danger", function () { deleteProfile(profile); }),
+              actionButton("连接", "button small primary", function () { connectProfile(profile); }, !state.ssh.available)
             );
             card.append(details, actions);
             list.appendChild(card);
