@@ -95,8 +95,7 @@ export function isCommandNotFoundError(error: unknown): boolean {
 export function monitorProcessStderr(
   stream: ReadableStream<Uint8Array>,
   onLine: (line: string) => void,
-): { done: Promise<readonly string[]> } {
-  const tail: string[] = [];
+): { done: Promise<void> } {
   const done = (async () => {
     const reader = stream.getReader();
     const decoder = new TextDecoder();
@@ -109,26 +108,20 @@ export function monitorProcessStderr(
         pending = readDone ? "" : lines.pop() ?? "";
 
         for (const raw of lines) {
-          const line = Array.from(raw)
+          const text = Array.from(raw)
             .filter((character) => {
               const code = character.charCodeAt(0);
               return code === 9 || (code >= 32 && code !== 127);
             })
             .join("")
             .trim();
-          if (!line) continue;
-
-          const clipped = line.slice(0, 2_000);
-          tail.push(clipped);
-          if (tail.length > 20) tail.shift();
-          onLine(clipped);
+          if (text) onLine(text);
         }
         if (readDone) break;
       }
     } finally {
       reader.releaseLock();
     }
-    return tail;
   })();
 
   return { done };

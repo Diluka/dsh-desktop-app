@@ -93,7 +93,6 @@ Deno.test("startSshTunnel supports fake child ready path and stop lifecycle", as
     success: true,
     code: 0,
     signal: null,
-    stderr: [],
     stopRequested: true,
   });
 });
@@ -184,10 +183,18 @@ Deno.test("startSshTunnel stops tunnel and throws DSH_UNAVAILABLE when remote pr
   await child.status;
 });
 
-Deno.test("startSshTunnel classifies auth failures", async () => {
-  const { logger } = await memoryLogger();
-  const error = await startAndClassify("Permission denied (publickey).\n", logger);
+Deno.test("startSshTunnel logs only matched failure details", async () => {
+  const { logger, filePath } = await memoryLogger();
+  const error = await startAndClassify(
+    "debug: connecting\nPermission denied (publickey).\n",
+    logger,
+  );
   assertEquals(error.code, "AUTH_FAILED");
+
+  logger.flush();
+  const log = await Deno.readTextFile(filePath);
+  assert(log.includes("Permission denied"));
+  assertFalse(log.includes("debug: connecting"));
 });
 
 Deno.test("startSshTunnel classifies host key verification failures", async () => {

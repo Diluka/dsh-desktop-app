@@ -51,11 +51,15 @@ interface StartTunnelOptions {
   readonly now?: () => number;
 }
 
+interface SshDiagnostics {
+  readonly codes: Set<TunnelErrorCode>;
+  readonly details: string[];
+}
+
 export interface TunnelExit {
   readonly success: boolean;
   readonly code: number;
   readonly signal: string | null;
-  readonly stderr: readonly string[];
   readonly stopRequested: boolean;
 }
 
@@ -67,15 +71,15 @@ export class SshTunnel {
   constructor(
     readonly url: string,
     private readonly child: ChildProcessLike,
-    private readonly stderrDone: Promise<readonly string[]>,
+    private readonly diagnosticsDone: Promise<void>,
     private readonly delay: (milliseconds: number) => Promise<void>,
   ) {
     this.exited = (async () => {
       const status = await child.status;
       this.#finished = true;
+      await this.diagnosticsDone;
       return {
         ...status,
-        stderr: await stderrDone,
         stopRequested: this.#stopRequested,
       };
     })();
@@ -200,12 +204,9 @@ async function startTunnelAttempt(
     throw error;
   }
 
+  const diagnostics: SshDiagnostics = { codes: new Set(), details: [] };
   const stderr = monitorProcessStderr(child.stderr, (line) => {
-    logger.warn({
-      event: "ssh.stderr",
-      profileId: profile.id,
-      detail: line,
-    }, "OpenSSH reported a diagnostic");
+    collectSshDiagnostic(diagnostics, line);
   });
   const tunnel = new SshTunnel(
     `http://127.0.0.1:${localPort}/`,
@@ -218,6 +219,19 @@ async function startTunnelAttempt(
     value,
   }));
 
+  function failureFromExit(exit: TunnelExit): TunnelError {
+    const error = classifySshFailure(diagnostics);
+    logger.warn({
+      event: "ssh.tunnel_failed",
+      profileId: profile.id,
+      errorCode: error.code,
+      childExitCode: exit.code,
+      childSignal: exit.signal,
+      childErrorDetails: diagnostics.details,
+    }, "OpenSSH tunnel failed");
+    return error;
+  }
+
   const startedAt = now();
   while (now() - startedAt < startupTimeoutMs) {
     const outcome = await Promise.race([
@@ -227,7 +241,7 @@ async function startTunnelAttempt(
         () => ({ kind: "retry" as const }),
       ),
     ]);
-    if (outcome.kind === "exit") throw classifySshFailure(outcome.value.stderr);
+    if (outcome.kind === "exit") throw failureFromExit(outcome.value);
     if (outcome.kind === "ready") {
       logger.info({
         event: "ssh.tunnel_ready",
@@ -241,7 +255,7 @@ async function startTunnelAttempt(
       exitOutcome,
       delay(150).then(() => ({ kind: "retry" as const })),
     ]);
-    if (pause.kind === "exit") throw classifySshFailure(pause.value.stderr);
+    if (pause.kind === "exit") throw failureFromExit(pause.value);
   }
 
   await tunnel.stop();
@@ -255,34 +269,56 @@ function spawnOpenSsh(command: string, args: string[]): ChildProcessLike {
   return spawnHiddenProcess(command, args);
 }
 
-function classifySshFailure(stderr: readonly string[]): TunnelError {
-  const detail = stderr.join("\n");
+function collectSshDiagnostic(diagnostics: SshDiagnostics, line: string): void {
+  let code: TunnelErrorCode | undefined;
   if (
-    /address already in use|cannot listen to port|could not request local forwarding/iu.test(detail)
+    /address already in use|cannot listen to port|could not request local forwarding/iu.test(line)
   ) {
+    code = "LOCAL_PORT_BUSY";
+  } else if (/\bENOENT\b|not found/iu.test(line)) {
+    code = "SSH_NOT_FOUND";
+  } else if (/permission denied|no more authentication methods/iu.test(line)) {
+    code = "AUTH_FAILED";
+  } else if (/host key verification failed|remote host identification has changed/iu.test(line)) {
+    code = "HOST_KEY_FAILED";
+  } else if (/could not resolve hostname|name or service not known/iu.test(line)) {
+    code = "HOST_NOT_FOUND";
+  } else if (
+    /connection refused|connection timed out|operation timed out|no route to host/iu.test(line)
+  ) {
+    code = "CONNECTION_FAILED";
+  } else if (/\berror\b|failed|fatal|exception|panic/iu.test(line)) {
+    code = "SSH_FAILED";
+  }
+  if (!code) return;
+
+  diagnostics.codes.add(code);
+  if (diagnostics.details.length < 5) diagnostics.details.push(line.slice(0, 2_000));
+}
+
+function classifySshFailure(diagnostics: SshDiagnostics): TunnelError {
+  if (diagnostics.codes.has("LOCAL_PORT_BUSY")) {
     return new TunnelError("LOCAL_PORT_BUSY", "本地端口刚被其他程序占用，正在重试");
   }
-  if (/\bENOENT\b|not found/iu.test(detail)) {
+  if (diagnostics.codes.has("SSH_NOT_FOUND")) {
     return new TunnelError("SSH_NOT_FOUND", "未找到 OpenSSH Client，请先安装后重试");
   }
-  if (/permission denied|no more authentication methods/iu.test(detail)) {
+  if (diagnostics.codes.has("AUTH_FAILED")) {
     return new TunnelError(
       "AUTH_FAILED",
       "SSH 认证失败；请检查 .ssh/config、密钥和 ssh-agent（首版不支持密码交互）",
     );
   }
-  if (/host key verification failed|remote host identification has changed/iu.test(detail)) {
+  if (diagnostics.codes.has("HOST_KEY_FAILED")) {
     return new TunnelError(
       "HOST_KEY_FAILED",
       "SSH 主机密钥校验失败；请先在终端确认新主机，或检查 known_hosts",
     );
   }
-  if (/could not resolve hostname|name or service not known/iu.test(detail)) {
+  if (diagnostics.codes.has("HOST_NOT_FOUND")) {
     return new TunnelError("HOST_NOT_FOUND", "无法解析 SSH Host，请检查 .ssh/config 中的 Host");
   }
-  if (
-    /connection refused|connection timed out|operation timed out|no route to host/iu.test(detail)
-  ) {
+  if (diagnostics.codes.has("CONNECTION_FAILED")) {
     return new TunnelError("CONNECTION_FAILED", "无法连接 SSH 服务器，请检查网络和 SSH 配置");
   }
   return new TunnelError("SSH_FAILED", "OpenSSH 隧道启动失败，详细信息已写入日志");

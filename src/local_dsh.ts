@@ -39,11 +39,15 @@ interface StartLocalDshOptions {
   readonly now?: () => number;
 }
 
+interface LocalDshDiagnostics {
+  readonly codes: Set<LocalDshErrorCode>;
+  readonly details: string[];
+}
+
 export interface LocalDshExit {
   readonly success: boolean;
   readonly code: number;
   readonly signal: string | null;
-  readonly stderr: readonly string[];
   readonly stopRequested: boolean;
 }
 
@@ -55,15 +59,15 @@ export class LocalDshWeb {
   constructor(
     readonly url: string,
     private readonly child: ChildProcessLike,
-    private readonly stderrDone: Promise<readonly string[]>,
+    private readonly diagnosticsDone: Promise<void>,
     private readonly delay: (milliseconds: number) => Promise<void>,
   ) {
     this.exited = (async () => {
       const status = await child.status;
       this.#finished = true;
+      await this.diagnosticsDone;
       return {
         ...status,
-        stderr: await stderrDone,
         stopRequested: this.#stopRequested,
       };
     })();
@@ -141,8 +145,9 @@ async function startLocalDshAttempt(
     throw error;
   }
 
+  const diagnostics: LocalDshDiagnostics = { codes: new Set(), details: [] };
   const stderr = monitorProcessStderr(child.stderr, (line) => {
-    logger.warn({ event: "local_dsh.stderr", detail: line }, "Local DSH Web reported a diagnostic");
+    collectLocalDshDiagnostic(diagnostics, line);
   });
   const web = new LocalDshWeb(
     `http://127.0.0.1:${localPort}/`,
@@ -155,6 +160,18 @@ async function startLocalDshAttempt(
     value,
   }));
 
+  function failureFromExit(exit: LocalDshExit): LocalDshError {
+    const error = classifyLocalDshFailure(diagnostics);
+    logger.warn({
+      event: "local_dsh.failed",
+      errorCode: error.code,
+      childExitCode: exit.code,
+      childSignal: exit.signal,
+      childErrorDetails: diagnostics.details,
+    }, "Local DSH Web failed");
+    return error;
+  }
+
   const startedAt = now();
   while (now() - startedAt < startupTimeoutMs) {
     const outcome = await Promise.race([
@@ -164,7 +181,7 @@ async function startLocalDshAttempt(
         () => ({ kind: "retry" as const }),
       ),
     ]);
-    if (outcome.kind === "exit") throw classifyLocalDshFailure(outcome.value.stderr);
+    if (outcome.kind === "exit") throw failureFromExit(outcome.value);
     if (outcome.kind === "ready") {
       logger.info({
         event: "local_dsh.ready",
@@ -178,7 +195,7 @@ async function startLocalDshAttempt(
       exitOutcome,
       delay(150).then(() => ({ kind: "retry" as const })),
     ]);
-    if (pause.kind === "exit") throw classifyLocalDshFailure(pause.value.stderr);
+    if (pause.kind === "exit") throw failureFromExit(pause.value);
   }
 
   await web.stop();
@@ -192,14 +209,28 @@ function spawnLocalDsh(command: string, args: string[]): ChildProcessLike {
   return spawnHiddenProcess(command, args);
 }
 
-function classifyLocalDshFailure(stderr: readonly string[]): LocalDshError {
-  const detail = stderr.join("\n");
+function collectLocalDshDiagnostic(diagnostics: LocalDshDiagnostics, line: string): void {
+  let code: LocalDshErrorCode | undefined;
   if (
-    /EADDRINUSE|address already in use|cannot listen to port|listen .*127\.0\.0\.1/iu.test(detail)
+    /EADDRINUSE|address already in use|cannot listen to port|listen .*127\.0\.0\.1/iu.test(line)
   ) {
+    code = "LOCAL_PORT_BUSY";
+  } else if (/\bENOENT\b|command not found|not found/iu.test(line)) {
+    code = "DSH_NOT_FOUND";
+  } else if (/\berror\b|failed|fatal|exception|panic/iu.test(line)) {
+    code = "DSH_WEB_FAILED";
+  }
+  if (!code) return;
+
+  diagnostics.codes.add(code);
+  if (diagnostics.details.length < 5) diagnostics.details.push(line.slice(0, 2_000));
+}
+
+function classifyLocalDshFailure(diagnostics: LocalDshDiagnostics): LocalDshError {
+  if (diagnostics.codes.has("LOCAL_PORT_BUSY")) {
     return new LocalDshError("LOCAL_PORT_BUSY", "本地端口刚被其他程序占用，正在重试");
   }
-  if (/\bENOENT\b|command not found|not found/iu.test(detail)) {
+  if (diagnostics.codes.has("DSH_NOT_FOUND")) {
     return new LocalDshError("DSH_NOT_FOUND", dshInstallHelp());
   }
   return new LocalDshError("DSH_WEB_FAILED", "dsh web 启动失败，详细信息已写入日志。");

@@ -41,14 +41,13 @@ Deno.test("startLocalDshWeb supports fake child ready path and stop lifecycle", 
     success: true,
     code: 0,
     signal: null,
-    stderr: [],
     stopRequested: true,
   });
 });
 
 Deno.test("startLocalDshWeb retries when a selected port is claimed", async () => {
-  const { logger } = await memoryLogger();
-  const busy = fakeChild("listen EADDRINUSE: address already in use 127.0.0.1:45001\n");
+  const { logger, filePath } = await memoryLogger();
+  const busy = fakeChild("warming up\nlisten EADDRINUSE: address already in use 127.0.0.1:45001\n");
   const ready = fakeChild();
   const allocatedPorts: number[] = [];
   let spawnCount = 0;
@@ -76,6 +75,11 @@ Deno.test("startLocalDshWeb retries when a selected port is claimed", async () =
   const stopped = web.stop();
   ready.finish({ success: true, code: 0, signal: null });
   await stopped;
+
+  logger.flush();
+  const log = await Deno.readTextFile(filePath);
+  assert(log.includes("EADDRINUSE"));
+  assert(!log.includes("warming up"));
 });
 
 Deno.test("startLocalDshWeb reports missing dsh command", async () => {
