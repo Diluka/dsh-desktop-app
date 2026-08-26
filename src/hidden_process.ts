@@ -87,26 +87,6 @@ export async function runHiddenCommand(
   });
 }
 
-export async function launchDetachedHidden(
-  executable: string,
-  args: string[],
-): Promise<void> {
-  const child = spawn(executable, args, {
-    detached: true,
-    windowsHide: WINDOWS_HIDE_PROCESS,
-    stdio: "ignore",
-  });
-  await new Promise<void>((resolve, reject) => {
-    const onError = (error: Error) => reject(error);
-    child.once("spawn", () => {
-      child.off("error", onError);
-      child.unref();
-      resolve();
-    });
-    child.once("error", onError);
-  });
-}
-
 export function isCommandNotFoundError(error: unknown): boolean {
   if (error instanceof Deno.errors.NotFound) return true;
   return error instanceof Error && "code" in error && error.code === "ENOENT";

@@ -151,12 +151,12 @@ tail -f "$HOME/Library/Logs/dsh-desktop/dsh-desktop-$(date +%F).jsonl"
 
 预期选择页显示对应平台的安装指引，连接按钮不可用，日志包含 `ssh.probe` 且 `available` 为 `false`。
 
-### 8. 系统 locale
+### 8. 语言与系统 locale
 
-1. 使用没有显式 `locale.preference` 的全新 DSH 配置，或先在 DSH 设置中清除语言偏好。
-2. 把 Windows/macOS 系统语言设为中文或另一种可识别语言，再启动桌面应用。
-3. 确认 DSH Web 初始语言跟随系统；显式保存过的 DSH 语言偏好仍应优先。
-4. 确认 `app.start.browserLocale` 是运行机器检测到的 locale；检测失败时该字段缺席且应用正常启动。
+1. 在三个平台分别启动桌面应用，确认全程只有一次 CEF 启动且不出现 locale 自重启空白窗口。
+2. 在 DSH 设置中保存语言后重启桌面应用，确认偏好仍然生效。
+3. 确认 `app.start.systemLocale` 是运行机器检测到的 locale；该字段只用于诊断，不控制 DSH 界面语言。
+4. locale 检测失败时该字段缺席，应用仍应正常启动。
 
 ### 9. Windows 隐藏 OpenSSH 窗口
 

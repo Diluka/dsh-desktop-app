@@ -1,13 +1,11 @@
 import { resolveAppPaths } from "./src/app_paths.ts";
-import { prepareSystemBrowserLocale } from "./src/browser_locale.ts";
+import { detectSystemLocale } from "./src/browser_locale.ts";
 import { createLogger } from "./src/logger.ts";
 import { ProfileStore } from "./src/profiles.ts";
 import { probeOpenSsh, SshTunnel, startSshTunnel, TunnelError } from "./src/ssh_tunnel.ts";
 import { handleShellRequest } from "./src/ui.ts";
 
-const browserLocale = await prepareSystemBrowserLocale();
-if (browserLocale.relaunched) Deno.exit(0);
-
+const systemLocale = detectSystemLocale();
 const paths = resolveAppPaths();
 const logger = await createLogger(paths.logDirectory);
 logger.info({
@@ -15,15 +13,8 @@ logger.info({
   version: Deno.version.deno,
   os: Deno.build.os,
   arch: Deno.build.arch,
-  ...(browserLocale.locale ? { browserLocale: browserLocale.locale } : {}),
+  ...(systemLocale ? { systemLocale } : {}),
 }, "DSH Desktop is starting");
-if (browserLocale.error) {
-  logger.warn({
-    event: "browser.locale_bootstrap_failed",
-    err: browserLocale.error,
-  }, "Could not relaunch Chromium with the system locale");
-}
-
 const { store, recoveredBackup } = await ProfileStore.open(paths.configFile);
 let startupNotice = recoveredBackup
   ? `检测到损坏的服务器配置，原文件已保留为 ${recoveredBackup}`

@@ -1,12 +1,6 @@
 import { basename, join } from "node:path";
 import { resolveAppPaths } from "../src/app_paths.ts";
-import {
-  browserLocaleArguments,
-  canonicalSystemLocale,
-  commandLineSwitchValue,
-  createBrowserLocaleLaunchPlan,
-} from "../src/browser_locale.ts";
-import { launchDetachedHidden } from "../src/hidden_process.ts";
+import { canonicalSystemLocale, detectSystemLocale } from "../src/browser_locale.ts";
 import { createLogger } from "../src/logger.ts";
 import { DEFAULT_REMOTE_PORT, ProfileStore, ProfileValidationError } from "../src/profiles.ts";
 import { buildSshArguments, probeOpenSsh, startSshTunnel, TunnelError } from "../src/ssh_tunnel.ts";
@@ -100,63 +94,11 @@ Deno.test("resolveAppPaths uses the native platform path rules", () => {
   });
 });
 
-Deno.test("browser locale planning uses only runtime values and exact switches", () => {
+Deno.test("system locale normalization uses runtime values", () => {
   assertEquals(canonicalSystemLocale("zh_CN"), "zh-CN");
   assertEquals(canonicalSystemLocale("not a locale"), undefined);
-  assertEquals(browserLocaleArguments("zh-CN"), ["--lang=zh-CN", "--accept-lang=zh-CN,zh"]);
-  assertEquals(
-    commandLineSwitchValue(["--some-url=https://example.test/?q=--lang=fr-FR"], "--lang"),
-    undefined,
-  );
-  assertEquals(
-    commandLineSwitchValue(["--lang=fr-FR --accept-lang=fr-FR,fr"], "--lang"),
-    "fr-FR",
-  );
-
-  const supportedDesktop = Deno.build.os === "windows" || Deno.build.os === "darwin";
-  const plan = createBrowserLocaleLaunchPlan(
-    ["--user-flag"],
-    "zh_CN",
-    true,
-    false,
-    Deno.execPath(),
-  );
-  if (supportedDesktop) {
-    assertEquals(plan, {
-      executable: Deno.execPath(),
-      args: ["--user-flag", "--lang=zh-CN", "--accept-lang=zh-CN,zh"],
-      locale: "zh-CN",
-    });
-    assertExists(createBrowserLocaleLaunchPlan([], "en-US", true, false, Deno.execPath()));
-  } else {
-    assertEquals(plan, undefined);
-  }
-
-  assertEquals(
-    createBrowserLocaleLaunchPlan([], undefined, true, false, Deno.execPath()),
-    undefined,
-  );
-  assertEquals(
-    createBrowserLocaleLaunchPlan([], "zh-CN", false, false, Deno.execPath()),
-    undefined,
-  );
-  assertEquals(createBrowserLocaleLaunchPlan([], "zh-CN", true, true, Deno.execPath()), undefined);
-  assertEquals(
-    createBrowserLocaleLaunchPlan(
-      ["--accept-lang=ja-JP,ja"],
-      "zh-CN",
-      true,
-      false,
-      Deno.execPath(),
-    ),
-    undefined,
-  );
-});
-
-Deno.test("locale relaunch reports process creation failure", async () => {
-  const missingExecutable = `missing-desktop-${crypto.randomUUID()}`;
-  const error = await assertRejects(() => launchDetachedHidden(missingExecutable, []), Error);
-  assertMatch(error.message, /ENOENT|not found/iu);
+  const detected = detectSystemLocale();
+  if (detected) assertEquals(canonicalSystemLocale(detected), detected);
 });
 
 Deno.test("ProfileStore defaults port, validates input, persists and deletes", async () => {

@@ -16,7 +16,7 @@ DSH 的 Windows、Linux 与 macOS 桌面入口。首版提供远程模式：选�
 - 本地转发只绑定 `127.0.0.1`，空闲端口由应用自动选择。
 - SSH 成功后移除选择页的本地 bindings，再导航到 DSH Web。
 - Pino JSONL 日志记录启动、配置、OpenSSH、隧道和退出生命周期。
-- Windows/macOS 在窗口创建前读取运行机器的系统 locale；读取失败时不传语言参数。
+- 所有平台都只启动一个 CEF 进程；系统 locale 仅写入日志，界面语言使用 DSH 已保存的偏好。
 - 支持 Windows x86_64、Linux x86_64、macOS arm64 与 macOS x86_64 构建。
 
 首版认证使用密钥或 `ssh-agent`，不在应用内接收或保存 SSH 密码、私钥内容和 passphrase。
@@ -133,7 +133,7 @@ password、passphrase、token、Bearer 凭据和私钥标记做持久化前脱�
 - 转发固定为 `127.0.0.1:<自动端口> -> 127.0.0.1:<远端 DSH 端口>`。
 - `BatchMode=yes` 防止无界面的密码提示卡住应用。
 - 主机密钥校验沿用用户 `.ssh/config` 与 OpenSSH 默认策略，应用不会降低现有策略。
-- locale 自重启与完整继承 OpenSSH 环境需要运行时 `run/env` 权限；代码只启动自身和 `ssh`。
+- 启动 OpenSSH 并完整继承其环境需要运行时 `run/env` 权限；代码只启动 `ssh`。
 - Pino 加载时只额外开放 `sys.hostname`；文件日志的基础字段仅包含随机 `sessionId`。
 - 远端 DSH 页面加载前会移除配置、删除和连接 bindings。
 
@@ -145,7 +145,7 @@ assets/             SVG 源图、1024px PNG、Windows ICO 与 macOS ICNS
 src/profiles.ts     服务器配置校验和持久化
 src/ssh_tunnel.ts   OpenSSH 探测、隧道和错误分类
 src/hidden_process.ts Windows 隐藏进程与安全生命周期适配
-src/browser_locale.ts 运行时系统 locale 与 CEF 启动参数
+src/browser_locale.ts 运行时系统 locale 检测
 src/logger.ts       Pino 文件日志配置与脱敏
 src/ui.ts           本地服务器选择页
 src/app_paths.ts    Windows/Linux/macOS 应用数据路径
