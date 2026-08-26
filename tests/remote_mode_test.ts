@@ -7,7 +7,7 @@ import {
   createBrowserLocaleLaunchPlan,
 } from "../src/browser_locale.ts";
 import { launchDetachedHidden } from "../src/hidden_process.ts";
-import { errorContext, JsonlLogger } from "../src/logger.ts";
+import { createLogger } from "../src/logger.ts";
 import { DEFAULT_REMOTE_PORT, ProfileStore, ProfileValidationError } from "../src/profiles.ts";
 import { buildSshArguments, probeOpenSsh, startSshTunnel, TunnelError } from "../src/ssh_tunnel.ts";
 import { handleShellRequest, SHELL_HTML } from "../src/ui.ts";
@@ -248,7 +248,7 @@ Deno.test("probeOpenSsh reports platform install help when command is missing", 
 });
 
 Deno.test("startSshTunnel supports fake child ready path and stop lifecycle", async () => {
-  const logger = await memoryLogger();
+  const { logger } = await memoryLogger();
   let capturedCommand = "";
   let capturedArgs: string[] = [];
   const child = fakeChild();
@@ -291,7 +291,7 @@ Deno.test("startSshTunnel classifies auth failure without logging private key ma
   );
   child.finish({ success: false, code: 255, signal: null });
 
-  const logger = await memoryLogger();
+  const { logger, filePath } = await memoryLogger();
   const error = await assertRejects(
     () =>
       startSshTunnel(profile(), logger, {
@@ -305,46 +305,48 @@ Deno.test("startSshTunnel classifies auth failure without logging private key ma
     TunnelError,
   );
   assertEquals(error.code, "AUTH_FAILED");
-  await logger.flush();
-  const log = await Deno.readTextFile(logger.filePath);
+  logger.flush();
+  const log = await Deno.readTextFile(filePath);
   assertFalse(log.includes("secretbase64"));
   assert(log.includes("[REDACTED PRIVATE KEY MATERIAL]"));
 });
 
-Deno.test("JsonlLogger writes JSONL fields and errorContext", async () => {
+Deno.test("Pino writes standard JSONL fields and redacts sensitive values", async () => {
   const directory = await Deno.makeTempDir();
-  const logger = await JsonlLogger.create(directory, {
-    sessionId: "session-1",
-    now: () => new Date("2025-01-02T03:04:05.000Z"),
-  });
+  const logger = await createLogger(directory);
+  const filePath = await findLogFile(directory);
 
-  await logger.error("ssh.failed", "x".repeat(2100), {
-    detail: "y".repeat(4100),
+  const loggedError = Object.assign(new TypeError("boom"), { token: "nested-secret" });
+  logger.error({
+    event: "ssh.failed",
+    detail: `password=hunter2 Authorization: Bearer abc123 ${"y".repeat(4100)}`,
     token: "should-never-be-written",
-    note: "password=hunter2 Authorization: Bearer abc123",
-    ok: false,
-  });
-  await logger.flush();
+    err: loggedError,
+  }, "Failed to connect");
+  logger.error({ event: "app.unhandled_rejection", err: "token=reason-secret" }, "Rejected");
+  logger.flush();
 
-  assertEquals(basename(logger.filePath), "dsh-desktop-2025-01-02.jsonl");
-  const lines = (await Deno.readTextFile(logger.filePath)).trimEnd().split("\n");
-  assertEquals(lines.length, 1);
+  assertMatch(basename(filePath), /^dsh-desktop-\d{4}-\d{2}-\d{2}\.jsonl$/u);
+  const lines = (await Deno.readTextFile(filePath)).trimEnd().split("\n");
+  assertEquals(lines.length, 2);
   const entry = JSON.parse(lines[0]);
-  assertEquals(entry.timestamp, "2025-01-02T03:04:05.000Z");
-  assertEquals(entry.level, "error");
-  assertEquals(entry.sessionId, "session-1");
+  assertFalse(Number.isNaN(Date.parse(entry.time)));
+  assertEquals(entry.level, 50);
+  assertMatch(entry.sessionId, /^[0-9a-f-]{36}$/u);
   assertEquals(entry.event, "ssh.failed");
-  assertEquals(entry.message.length, 2003);
-  assertEquals(entry.context.detail.length, 4003);
-  assertEquals(entry.context.token, "[REDACTED]");
-  assertFalse(entry.context.note.includes("hunter2"));
-  assertFalse(entry.context.note.includes("abc123"));
-  assertEquals(entry.context.ok, false);
+  assertEquals(entry.msg, "Failed to connect");
+  assertEquals(entry.token, "[REDACTED]");
+  assertEquals(entry.detail.length, 4003);
+  assertFalse(entry.detail.includes("hunter2"));
+  assertFalse(entry.detail.includes("abc123"));
+  assertEquals(entry.err.type, "TypeError");
+  assertEquals(entry.err.message, "boom");
+  assertEquals(entry.err.token, "[REDACTED]");
+  assertExists(entry.err.stack);
 
-  const context = errorContext(new TypeError("boom"));
-  assertEquals(context.errorName, "TypeError");
-  assertEquals(context.errorMessage, "boom");
-  assertExists(context.errorStack);
+  const rejection = JSON.parse(lines[1]);
+  assertEquals(rejection.event, "app.unhandled_rejection");
+  assertEquals(rejection.err, "token=[REDACTED]");
 });
 
 Deno.test("handleShellRequest serves safe shell responses without local tunnel internals", async () => {
@@ -382,7 +384,17 @@ function profile() {
 
 async function memoryLogger() {
   const directory = await Deno.makeTempDir();
-  return await JsonlLogger.create(directory, { sessionId: "test" });
+  const logger = await createLogger(directory);
+  return { logger, filePath: await findLogFile(directory) };
+}
+
+async function findLogFile(directory: string): Promise<string> {
+  for await (const entry of Deno.readDir(directory)) {
+    if (entry.isFile && /^dsh-desktop-\d{4}-\d{2}-\d{2}\.jsonl$/u.test(entry.name)) {
+      return join(directory, entry.name);
+    }
+  }
+  throw new Error("Pino log file was not created");
 }
 
 function tickingClock(initial: number, step: number): () => number {

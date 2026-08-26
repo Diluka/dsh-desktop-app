@@ -115,7 +115,7 @@ tail -f "$HOME/Library/Logs/dsh-desktop/dsh-desktop-$(date +%F).jsonl"
 2. 编辑服务器配置并填写实际端口。
 3. 连接并确认加载的是该端口上的 DSH Web。
 
-预期 `ssh.tunnel_starting.context.remotePort` 等于配置值。
+预期 `ssh.tunnel_starting.remotePort` 等于配置值。
 
 ### 4. `.ssh/config` 生效
 
@@ -143,8 +143,7 @@ tail -f "$HOME/Library/Logs/dsh-desktop/dsh-desktop-$(date +%F).jsonl"
 
 连接成功后，让测试 SSH 会话中断（例如停止测试 sshd、断开测试网络，或结束对应本地 `ssh` 进程）。
 
-预期窗口返回服务器选择页并显示连接断开提示，日志中的 `ssh.tunnel_exited.context.stopRequested` 为
-`false`。
+预期窗口返回服务器选择页并显示连接断开提示，日志中的 `ssh.tunnel_exited.stopRequested` 为 `false`。
 
 ### 7. OpenSSH 缺失提示
 
@@ -157,8 +156,7 @@ tail -f "$HOME/Library/Logs/dsh-desktop/dsh-desktop-$(date +%F).jsonl"
 1. 使用没有显式 `locale.preference` 的全新 DSH 配置，或先在 DSH 设置中清除语言偏好。
 2. 把 Windows/macOS 系统语言设为中文或另一种可识别语言，再启动桌面应用。
 3. 确认 DSH Web 初始语言跟随系统；显式保存过的 DSH 语言偏好仍应优先。
-4. 确认 `app.start.context.browserLocale` 是运行机器检测到的
-   locale；检测失败时该字段缺席且应用正常启动。
+4. 确认 `app.start.browserLocale` 是运行机器检测到的 locale；检测失败时该字段缺席且应用正常启动。
 
 ### 9. Windows 隐藏 OpenSSH 窗口
 
@@ -182,4 +180,4 @@ OS / 版本：
 ```
 
 日志优先提供失败会话对应 `sessionId` 的完整事件。外发前可脱敏 SSH Host、用户名和本地路径；保留
-`event`、`timestamp`、错误类别、退出码和事件顺序。
+`event`、`time`、`msg`、错误类别、退出码和事件顺序。

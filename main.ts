@@ -1,6 +1,6 @@
 import { resolveAppPaths } from "./src/app_paths.ts";
 import { prepareSystemBrowserLocale } from "./src/browser_locale.ts";
-import { errorContext, JsonlLogger } from "./src/logger.ts";
+import { createLogger } from "./src/logger.ts";
 import { ProfileStore } from "./src/profiles.ts";
 import { probeOpenSsh, SshTunnel, startSshTunnel, TunnelError } from "./src/ssh_tunnel.ts";
 import { handleShellRequest } from "./src/ui.ts";
@@ -9,19 +9,19 @@ const browserLocale = await prepareSystemBrowserLocale();
 if (browserLocale.relaunched) Deno.exit(0);
 
 const paths = resolveAppPaths();
-const logger = await JsonlLogger.create(paths.logDirectory);
-await logger.info("app.start", "DSH Desktop is starting", {
+const logger = await createLogger(paths.logDirectory);
+logger.info({
+  event: "app.start",
   version: Deno.version.deno,
   os: Deno.build.os,
   arch: Deno.build.arch,
   ...(browserLocale.locale ? { browserLocale: browserLocale.locale } : {}),
-});
+}, "DSH Desktop is starting");
 if (browserLocale.error) {
-  await logger.warn(
-    "browser.locale_bootstrap_failed",
-    "Could not relaunch Chromium with the system locale",
-    errorContext(browserLocale.error),
-  );
+  logger.warn({
+    event: "browser.locale_bootstrap_failed",
+    err: browserLocale.error,
+  }, "Could not relaunch Chromium with the system locale");
 }
 
 const { store, recoveredBackup } = await ProfileStore.open(paths.configFile);
@@ -29,17 +29,18 @@ let startupNotice = recoveredBackup
   ? `检测到损坏的服务器配置，原文件已保留为 ${recoveredBackup}`
   : undefined;
 if (recoveredBackup) {
-  await logger.warn("profiles.recovered", "Recovered from an invalid profile file", {
+  logger.warn({
+    event: "profiles.recovered",
     backupPath: recoveredBackup,
-  });
+  }, "Recovered from an invalid profile file");
 }
 
 const ssh = await probeOpenSsh();
-await logger.info(
-  "ssh.probe",
-  ssh.available ? "OpenSSH Client is available" : "OpenSSH Client is unavailable",
-  { available: ssh.available, version: ssh.version ?? "unknown" },
-);
+logger.info({
+  event: "ssh.probe",
+  available: ssh.available,
+  version: ssh.version ?? "unknown",
+}, ssh.available ? "OpenSSH Client is available" : "OpenSSH Client is unavailable");
 
 const shellUrl = resolveShellUrl();
 Deno.serve({ hostname: "127.0.0.1" }, handleShellRequest);
@@ -63,13 +64,12 @@ window.addEventListener("close", (event) => {
 });
 
 addEventListener("error", (event) => {
-  void logger.error("app.uncaught_error", "Uncaught application error", errorContext(event.error));
+  logger.error({ event: "app.uncaught_error", err: event.error }, "Uncaught application error");
 });
 addEventListener("unhandledrejection", (event) => {
-  void logger.error(
-    "app.unhandled_rejection",
+  logger.error(
+    { event: "app.unhandled_rejection", err: event.reason },
     "Unhandled application rejection",
-    errorContext(event.reason),
   );
 });
 
@@ -86,27 +86,25 @@ function bindShell(): void {
   window.bind("saveProfile", async (input: unknown) => {
     try {
       const profile = await store.save(input);
-      await logger.info("profiles.saved", "Server profile was saved", {
+      logger.info({
+        event: "profiles.saved",
         profileId: profile.id,
         sshTarget: profile.sshTarget,
         remotePort: profile.remotePort,
-      });
+      }, "Server profile was saved");
       return profile;
     } catch (error) {
-      await logger.error(
-        "profiles.save_failed",
-        "Failed to save server profile",
-        errorContext(error),
-      );
+      logger.error({ event: "profiles.save_failed", err: error }, "Failed to save server profile");
       throw error;
     }
   });
   window.bind("deleteProfile", async (id: unknown) => {
     const deleted = await store.delete(id);
     if (deleted) {
-      await logger.info("profiles.deleted", "Server profile was deleted", {
+      logger.info({
+        event: "profiles.deleted",
         profileId: String(id),
-      });
+      }, "Server profile was deleted");
     }
     return deleted;
   });
@@ -151,10 +149,11 @@ async function connectProfile(id: unknown): Promise<void> {
     }
     void observeTunnel(tunnel, profile.name);
   } catch (error) {
-    await logger.error("ssh.connect_failed", "Failed to connect a server profile", {
+    logger.error({
+      event: "ssh.connect_failed",
       profileId: profile.id,
-      ...errorContext(error),
-    });
+      err: error,
+    }, "Failed to connect a server profile");
     if (error instanceof TunnelError) throw error;
     throw new Error("连接失败，详细信息已写入日志");
   } finally {
@@ -164,15 +163,12 @@ async function connectProfile(id: unknown): Promise<void> {
 
 async function observeTunnel(tunnel: SshTunnel, profileName: string): Promise<void> {
   const exit = await tunnel.exited;
-  await logger[exit.stopRequested ? "info" : "warn"](
-    "ssh.tunnel_exited",
-    exit.stopRequested ? "SSH tunnel stopped" : "SSH tunnel exited unexpectedly",
-    {
-      code: exit.code,
-      signal: exit.signal,
-      stopRequested: exit.stopRequested,
-    },
-  );
+  logger[exit.stopRequested ? "info" : "warn"]({
+    event: "ssh.tunnel_exited",
+    code: exit.code,
+    signal: exit.signal,
+    stopRequested: exit.stopRequested,
+  }, exit.stopRequested ? "SSH tunnel stopped" : "SSH tunnel exited unexpectedly");
 
   if (activeTunnel !== tunnel) return;
   activeTunnel = undefined;
@@ -186,12 +182,12 @@ async function observeTunnel(tunnel: SshTunnel, profileName: string): Promise<vo
 async function shutdown(): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
-  await logger.info("app.shutdown", "DSH Desktop is shutting down");
+  logger.info({ event: "app.shutdown" }, "DSH Desktop is shutting down");
   const tunnel = activeTunnel;
   activeTunnel = undefined;
   await tunnel?.stop();
-  await logger.info("app.stopped", "DSH Desktop stopped cleanly");
-  await logger.flush();
+  logger.info({ event: "app.stopped" }, "DSH Desktop stopped cleanly");
+  logger.flush();
   closeAllowed = true;
   if (!window.isClosed()) window.close();
 }

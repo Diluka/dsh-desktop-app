@@ -1,5 +1,5 @@
+import type { Logger } from "pino";
 import { isCommandNotFoundError, runHiddenCommand, spawnHiddenProcess } from "./hidden_process.ts";
-import type { JsonlLogger } from "./logger.ts";
 import type { ServerProfile } from "./profiles.ts";
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 20_000;
@@ -144,7 +144,7 @@ export function buildSshArguments(profile: ServerProfile, localPort: number): st
 
 export async function startSshTunnel(
   profile: ServerProfile,
-  logger: JsonlLogger,
+  logger: Logger,
   options: StartTunnelOptions = {},
 ): Promise<SshTunnel> {
   for (let attempt = 1; attempt <= MAX_LOCAL_PORT_ATTEMPTS; attempt++) {
@@ -152,10 +152,11 @@ export async function startSshTunnel(
       return await startTunnelAttempt(profile, logger, options);
     } catch (error) {
       if (!(error instanceof TunnelError) || error.code !== "LOCAL_PORT_BUSY") throw error;
-      await logger.warn("ssh.local_port_retry", "Local port was claimed before SSH bound it", {
+      logger.warn({
+        event: "ssh.local_port_retry",
         profileId: profile.id,
         attempt,
-      });
+      }, "Local port was claimed before SSH bound it");
     }
   }
   throw new TunnelError("LOCAL_PORT_BUSY", "无法分配本地端口，请重试");
@@ -163,7 +164,7 @@ export async function startSshTunnel(
 
 async function startTunnelAttempt(
   profile: ServerProfile,
-  logger: JsonlLogger,
+  logger: Logger,
   options: StartTunnelOptions,
 ): Promise<SshTunnel> {
   const command = options.command ?? "ssh";
@@ -176,11 +177,12 @@ async function startTunnelAttempt(
   const localPort = await allocatePort();
   const args = buildSshArguments(profile, localPort);
 
-  await logger.info("ssh.tunnel_starting", "Starting OpenSSH local port forwarding", {
+  logger.info({
+    event: "ssh.tunnel_starting",
     profileId: profile.id,
     sshTarget: profile.sshTarget,
     remotePort: profile.remotePort,
-  });
+  }, "Starting OpenSSH local port forwarding");
 
   let child: ChildProcessLike;
   try {
@@ -193,10 +195,11 @@ async function startTunnelAttempt(
   }
 
   const stderr = monitorStderr(child.stderr, (line) => {
-    void logger.warn("ssh.stderr", "OpenSSH reported a diagnostic", {
+    logger.warn({
+      event: "ssh.stderr",
       profileId: profile.id,
       detail: line,
-    });
+    }, "OpenSSH reported a diagnostic");
   });
   const tunnel = new SshTunnel(
     `http://127.0.0.1:${localPort}/`,
@@ -220,10 +223,11 @@ async function startTunnelAttempt(
     ]);
     if (outcome.kind === "exit") throw classifySshFailure(outcome.value.stderr);
     if (outcome.kind === "ready") {
-      await logger.info("ssh.tunnel_ready", "SSH tunnel and remote DSH Web are ready", {
+      logger.info({
+        event: "ssh.tunnel_ready",
         profileId: profile.id,
         startupMs: Math.max(0, now() - startedAt),
-      });
+      }, "SSH tunnel and remote DSH Web are ready");
       return tunnel;
     }
 
