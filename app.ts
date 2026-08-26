@@ -2,7 +2,7 @@ import { resolveAppPaths } from "./src/app_paths.ts";
 import { detectSystemLocale } from "./src/browser_locale.ts";
 import { createLogger } from "./src/logger.ts";
 import { openDirectory } from "./src/open_directory.ts";
-import { ProfileStore } from "./src/profiles.ts";
+import { ProfileStore, type ServerProfileInput } from "./src/profiles.ts";
 import { probeOpenSsh, SshTunnel, startSshTunnel, TunnelError } from "./src/ssh_tunnel.ts";
 import { handleShellRequest } from "./src/ui.ts";
 import { setWindowsWindowIcon } from "./src/windows_window_icon.ts";
@@ -97,7 +97,7 @@ export async function startDesktop(backend: DesktopBackend): Promise<void> {
       browserBackend: backend === "webview" ? "Microsoft Edge WebView2" : "Chromium / CEF",
       ...(startupNotice ? { startupNotice } : {}),
     }));
-    window.bind("saveProfile", async (input: unknown) => {
+    window.bind("saveProfile", async (input: ServerProfileInput) => {
       try {
         const profile = await store.save(input);
         logger.info({

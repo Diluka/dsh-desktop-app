@@ -151,6 +151,34 @@ Deno.test("ProfileStore backs up corrupt config and recovers empty store", async
   await assertRejects(() => Deno.readTextFile(filePath), Deno.errors.NotFound);
 });
 
+Deno.test("ProfileStore backs up config with boolean port", async () => {
+  const filePath = await tempFile("servers.json");
+  await Deno.writeTextFile(
+    filePath,
+    JSON.stringify({
+      version: 1,
+      profiles: [{
+        id: "profile-1",
+        name: "Production",
+        sshTarget: "prod-dsh",
+        remotePort: true,
+      }],
+    }),
+  );
+
+  const opened = await ProfileStore.open(filePath, {
+    now: () => new Date("2025-01-02T03:04:05.000Z"),
+  });
+
+  assertEquals(opened.store.list(), []);
+  assertEquals(opened.recoveredBackup, `${filePath}.invalid-2025-01-02T03-04-05.000Z`);
+});
+
+function acceptsSaveInput(_input: Parameters<ProfileStore["save"]>[0]): void {}
+
+// @ts-expect-error remotePort only accepts browser form text or numeric ports.
+acceptsSaveInput({ name: "bad", sshTarget: "prod", remotePort: true });
+
 Deno.test("buildSshArguments creates non-interactive loopback forwarding without clearing forwards", () => {
   const args = buildSshArguments({
     id: "p1",
@@ -308,6 +336,18 @@ Deno.test("Pino creates a separate file for each logger", async () => {
       content.includes('"event":"session.first"') && content.includes('"event":"session.second"')
     ),
   );
+});
+
+Deno.test("shell html has key elements and parseable inline scripts", () => {
+  for (const id of ["server-form", "remote-port", "server-list", "toast"]) {
+    assertMatch(SHELL_HTML, new RegExp(`id="${id}"`, "u"));
+  }
+
+  const scripts = [...SHELL_HTML.matchAll(/<script>([\s\S]*?)<\/script>/gu)].map((match) =>
+    match[1]
+  );
+  assertEquals(scripts.length, 2);
+  for (const script of scripts) new Function(script);
 });
 
 Deno.test("handleShellRequest serves safe shell responses without local tunnel internals", async () => {
