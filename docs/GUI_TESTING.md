@@ -14,14 +14,14 @@
 5. 从仓库执行 `deno task check`，再构建目标平台目录包。
 
 > [!NOTE]
-> 从 WSL 交叉构建 Windows 后，请把整个 `dist/windows/DshDesktop/` 目录复制到 Windows
+> 从 WSL 交叉构建 Windows 后，请把整个 `dist/windows/DSH-Desktop/` 目录复制到 Windows
 > 本地磁盘再运行，避免把 WSL/UNC 路径问题误判为应用问题。
 
 ## Linux
 
 ```bash
 deno task build:linux
-./dist/linux/dsh-desktop/dsh-desktop
+./dist/linux/DSH-Desktop/DSH-Desktop
 ```
 
 如需便携包：
@@ -52,7 +52,7 @@ deno task build:windows
 deno task build:windows
 ```
 
-复制完整目录后运行其中的 `DshDesktop.exe`。如需安装包，执行 `deno task package:windows` 并运行
+复制完整目录后运行其中的 `DSH-Desktop.exe`。如需安装包，执行 `deno task package:windows` 并运行
 `dist/windows/DSH-Desktop.msi`。
 
 实时查看日志：

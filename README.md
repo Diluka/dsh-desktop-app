@@ -76,8 +76,8 @@ deno task package:windows  # MSI
 
 目录包输出到：
 
-- Linux：`dist/linux/dsh-desktop/`
-- Windows：`dist/windows/DshDesktop/`
+- Linux：`dist/linux/DSH-Desktop/`
+- Windows：`dist/windows/DSH-Desktop/`
 
 Deno 会按目标平台下载并校验对应的 CEF 后端，因此首次构建较慢且产物体积较大。Windows 与 Linux
 可以互相交叉构建；GUI 行为仍需在目标系统验证。
