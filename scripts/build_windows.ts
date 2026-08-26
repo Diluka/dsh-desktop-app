@@ -1,4 +1,3 @@
-import { cp } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as ResEdit from "resedit";
@@ -10,31 +9,11 @@ const icon = join(root, "assets", "icon.ico");
 const packageRequested = Deno.args.length === 1 && Deno.args[0] === "--package";
 if (Deno.args.length && !packageRequested) throw new Error("Expected only --package");
 
-await runDesktop(appDirectory);
+await runDesktop();
 await embedIcon(executable, icon);
+if (packageRequested) await buildArchive();
 
-if (packageRequested) {
-  const laufeyDevDirectory = await Deno.makeTempDir({ prefix: "dsh-laufey-" });
-  try {
-    const releaseDirectory = join(laufeyDevDirectory, "cef", "build", "Release");
-    await cp(appDirectory, releaseDirectory, { recursive: true });
-    const launcherName = Deno.build.os === "windows" ? "laufey.exe" : "laufey";
-    await Deno.rename(
-      join(releaseDirectory, "DSH-Desktop.exe"),
-      join(releaseDirectory, launcherName),
-    );
-    await removeIfExists(join(releaseDirectory, "DSH-Desktop.dll"));
-    await removeIfExists(join(releaseDirectory, ".deno-desktop-app"));
-    await removeIfExists(join(releaseDirectory, "AppIcon.ico"));
-    await runDesktop(join(root, "dist", "windows", "DSH-Desktop.msi"), {
-      LAUFEY_DEV_DIR: laufeyDevDirectory,
-    });
-  } finally {
-    await Deno.remove(laufeyDevDirectory, { recursive: true });
-  }
-}
-
-async function runDesktop(output: string, env: Record<string, string> = {}): Promise<void> {
+async function runDesktop(): Promise<void> {
   const command = new Deno.Command(Deno.execPath(), {
     args: [
       "desktop",
@@ -46,12 +25,11 @@ async function runDesktop(output: string, env: Record<string, string> = {}): Pro
       "--icon",
       icon,
       "--output",
-      output,
+      appDirectory,
       "--exclude-unused-npm",
       "main.ts",
     ],
     cwd: root,
-    env,
     stdin: "null",
     stdout: "inherit",
     stderr: "inherit",
@@ -84,10 +62,25 @@ async function embedIcon(executablePath: string, iconPath: string): Promise<void
   console.log(`Embedded ${iconFile.icons.length} icon sizes into ${executablePath}`);
 }
 
-async function removeIfExists(path: string): Promise<void> {
+async function buildArchive(): Promise<void> {
+  const outputDirectory = join(root, "dist", "windows");
+  const archive = join(outputDirectory, "DSH-Desktop-windows-x86_64.zip");
   try {
-    await Deno.remove(path, { recursive: true });
+    await Deno.remove(archive);
   } catch (error) {
     if (!(error instanceof Deno.errors.NotFound)) throw error;
   }
+
+  const windows = Deno.build.os === "windows";
+  const command = new Deno.Command(windows ? "tar.exe" : "zip", {
+    args: windows
+      ? ["-a", "-c", "-f", archive, "-C", outputDirectory, "DSH-Desktop"]
+      : ["-q", "-r", "-9", archive, "DSH-Desktop"],
+    cwd: outputDirectory,
+    stdin: "null",
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  const status = await command.spawn().status;
+  if (!status.success) throw new Error(`ZIP packaging failed with exit code ${status.code}`);
 }

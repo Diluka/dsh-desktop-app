@@ -5,6 +5,7 @@ import { openDirectory } from "./src/open_directory.ts";
 import { ProfileStore } from "./src/profiles.ts";
 import { probeOpenSsh, SshTunnel, startSshTunnel, TunnelError } from "./src/ssh_tunnel.ts";
 import { handleShellRequest } from "./src/ui.ts";
+import { setWindowsWindowIcon } from "./src/windows_window_icon.ts";
 
 const systemLocale = detectSystemLocale();
 const paths = resolveAppPaths();
@@ -36,11 +37,26 @@ logger.info({
 
 const shellUrl = resolveShellUrl();
 Deno.serve({ hostname: "127.0.0.1" }, handleShellRequest);
+const nativeWindowTitle = Deno.build.os === "windows" ? `DSH Desktop ${Deno.pid}` : "DSH Desktop";
 const window = new Deno.BrowserWindow({
-  title: "DSH Desktop",
+  title: nativeWindowTitle,
   width: 1180,
   height: 760,
 });
+let releaseWindowIcon: (() => void) | undefined;
+if (Deno.build.os === "windows") {
+  try {
+    releaseWindowIcon = setWindowsWindowIcon(nativeWindowTitle);
+    logger.info({ event: "window.icon_applied" }, "Applied the native Windows window icon");
+  } catch (error) {
+    logger.warn(
+      { event: "window.icon_failed", err: error },
+      "Could not apply the Windows window icon",
+    );
+  } finally {
+    window.setTitle("DSH Desktop");
+  }
+}
 
 let activeTunnel: SshTunnel | undefined;
 let connecting = false;
@@ -193,6 +209,8 @@ async function shutdown(): Promise<void> {
   const tunnel = activeTunnel;
   activeTunnel = undefined;
   await tunnel?.stop();
+  releaseWindowIcon?.();
+  releaseWindowIcon = undefined;
   logger.info({ event: "app.stopped" }, "DSH Desktop stopped cleanly");
   logger.flush();
   closeAllowed = true;

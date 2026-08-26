@@ -52,8 +52,8 @@ deno task build:windows
 deno task build:windows
 ```
 
-复制完整目录后运行其中的 `DSH-Desktop.exe`。如需安装包，执行 `deno task package:windows` 并运行
-`dist/windows/DSH-Desktop.msi`。
+复制完整目录后运行其中的 `DSH-Desktop.exe`。执行 `deno task package:windows` 会生成
+`dist/windows/DSH-Desktop-windows-x86_64.zip`；完整解压后再运行，不能只复制 EXE。
 
 实时查看日志：
 
@@ -172,9 +172,9 @@ tail -f "$HOME/Library/Logs/dsh-desktop/dsh-desktop-$(date +%F).jsonl"
 
 ### 11. Windows 应用图标
 
-安装 MSI 后检查安装目录中的
-`DSH-Desktop.exe`、开始菜单快捷方式、运行窗口和任务栏。预期均显示项目鱼形图标， 而不是 Windows
-默认可执行文件图标；若任务栏保留旧缓存，先取消固定再重新固定后复查。
+解压 Windows ZIP 后检查 `DSH-Desktop.exe`、运行窗口和任务栏。预期均显示项目鱼形图标，而不是 Windows
+或 Chrome 默认图标；若任务栏保留旧缓存，先取消固定再重新固定后复查。关闭应用后用新 ZIP
+的完整目录覆盖旧目录， 确认应用可正常启动且服务器配置仍保留。
 
 ## 回报模板
 
@@ -183,7 +183,7 @@ tail -f "$HOME/Library/Logs/dsh-desktop/dsh-desktop-$(date +%F).jsonl"
 ```text
 OS / 版本：
 构建命令：
-运行产物：目录包 / AppImage / MSI / DMG
+运行产物：目录包 / ZIP / DMG
 通过场景：1, 2, ...
 失败场景：
 复现步骤：

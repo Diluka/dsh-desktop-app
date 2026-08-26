@@ -26,6 +26,9 @@
   "permissions": {
     "app": {
       "env": true,
+      "ffi": [
+        "user32.dll"
+      ],
       "read": true,
       "write": true,
       "run": true,

@@ -66,7 +66,7 @@ jobs:
             os: windows-2022
             package_task: package:windows
             artifact_name: dsh-desktop-windows-x86_64
-            artifact_path: dist/windows/DSH-Desktop.msi
+            artifact_path: dist/windows/DSH-Desktop-windows-x86_64.zip
           - name: macOS arm64
             os: macos-14
             package_task: package:macos:aarch64
@@ -87,10 +87,10 @@ jobs:
         with:
           deno-version: v2.9.5
 
-      - name: Build native desktop installer
+      - name: Build native desktop distribution
         run: deno task ${{ matrix.package_task }}
 
-      - name: Upload desktop installer
+      - name: Upload desktop distribution
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact_name }}
@@ -114,7 +114,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Download all installers
+      - name: Download all release assets
         uses: actions/download-artifact@v8
         with:
           pattern: dsh-desktop-*
@@ -125,7 +125,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -s release-assets/DSH-Desktop.msi
+          test -s release-assets/DSH-Desktop-windows-x86_64.zip
           test -s release-assets/DSH-Desktop-aarch64.dmg
           test -s release-assets/DSH-Desktop-x86_64.dmg
           ls -lh release-assets
@@ -143,7 +143,7 @@ jobs:
           fi
 
           assets=(
-            release-assets/DSH-Desktop.msi
+            release-assets/DSH-Desktop-windows-x86_64.zip
             release-assets/DSH-Desktop-aarch64.dmg
             release-assets/DSH-Desktop-x86_64.dmg
           )
@@ -151,16 +151,18 @@ jobs:
           This rolling release was built from commit \`${GITHUB_SHA}\`.
 
           It is updated only after all Linux, Windows, and macOS test jobs plus all
-          Windows and macOS installer builds complete successfully.
+          Windows and macOS distribution builds complete successfully.
 
           Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
           EOF
 
           if gh release view latest >/dev/null 2>&1; then
             existing_assets=$(gh release view latest --json assets --jq '.assets[].name')
-            if grep -Fxq "DSH-Desktop.AppImage" <<<"${existing_assets}"; then
-              gh release delete-asset latest DSH-Desktop.AppImage --yes
-            fi
+            for stale_asset in DSH-Desktop.AppImage DSH-Desktop.msi DSH-Desktop-Setup.exe; do
+              if grep -Fxq "${stale_asset}" <<<"${existing_assets}"; then
+                gh release delete-asset latest "${stale_asset}" --yes
+              fi
+            done
             gh release upload latest "${assets[@]}" --clobber
             git tag --force latest "${GITHUB_SHA}"
             git push origin refs/tags/latest --force

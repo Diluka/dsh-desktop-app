@@ -5,6 +5,7 @@ import {
   assertFalse,
   assertMatch,
   assertRejects,
+  assertThrows,
 } from "@std/assert";
 import { basename, join } from "node:path";
 import { resolveAppPaths } from "../src/app_paths.ts";
@@ -14,6 +15,7 @@ import { directoryOpenCommand } from "../src/open_directory.ts";
 import { DEFAULT_REMOTE_PORT, ProfileStore, ProfileValidationError } from "../src/profiles.ts";
 import { buildSshArguments, probeOpenSsh, startSshTunnel, TunnelError } from "../src/ssh_tunnel.ts";
 import { handleShellRequest, SHELL_HTML } from "../src/ui.ts";
+import { setWindowsWindowIcon } from "../src/windows_window_icon.ts";
 
 function env(values: Record<string, string | undefined>): (name: string) => string | undefined {
   return (name) => values[name];
@@ -70,6 +72,15 @@ Deno.test("system locale normalization uses runtime values", () => {
   assertEquals(canonicalSystemLocale("not a locale"), undefined);
   const detected = detectSystemLocale();
   if (detected) assertEquals(canonicalSystemLocale(detected), detected);
+});
+
+Deno.test("Windows native icon API uses the scoped user32 permission", () => {
+  if (Deno.build.os !== "windows") return;
+  assertThrows(
+    () => setWindowsWindowIcon(`missing-window-${crypto.randomUUID()}`),
+    Error,
+    "Native window was not found",
+  );
 });
 
 Deno.test("directoryOpenCommand uses each platform's standard file manager", () => {

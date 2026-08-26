@@ -72,9 +72,9 @@ deno task build:windows
 deno task build:macos:aarch64
 deno task build:macos:x86_64
 
-# 便于分发的安装包
+# 便于分发的产物
 deno task package:linux          # AppImage
-deno task package:windows        # MSI
+deno task package:windows        # 完整目录 ZIP
 deno task package:macos:aarch64  # Apple Silicon DMG
 deno task package:macos:x86_64   # Intel DMG
 ```
@@ -88,19 +88,20 @@ deno task package:macos:x86_64   # Intel DMG
 
 Deno 会按目标平台下载并校验对应的 CEF 后端，因此首次构建较慢且产物体积较大。目录包可以交叉构建；DMG
 依赖 macOS 的 `hdiutil`，由对应的 GitHub macOS runner 原生生成。Windows 构建会使用固定版本的
-`resedit` 把 ICO 写入 launcher 的 PE 资源，因为 Deno 2.9 的 `--icon` 只复制旁置 `AppIcon.ico`。GUI
-行为仍需在目标系统验证。
+`resedit` 把 ICO 写入 launcher 的 PE 资源，因为 Deno 2.9 的 `--icon` 只复制旁置
+`AppIcon.ico`。Windows 发布产物是完整应用目录
+ZIP，无需安装或管理员权限；关闭应用后用新目录覆盖即可更新。GUI 行为仍需在目标系统验证。
 
 Linux 构建和 AppImage 任务继续保留给源码用户自行执行；CI 与 `latest` Release 不提供 Linux 预构建包。
 
 ## Latest Release
 
 固定下载地址：[`releases/tag/latest`](https://github.com/Diluka/dsh-desktop-app/releases/tag/latest)。每次成功的
-`main` 流水线会覆盖其中的同名安装包。
+`main` 流水线会覆盖其中的同名分发产物。
 
-`main` 的 CI 依次执行四平台测试、Windows/macOS 三种安装包构建和 `latest` Release
+`main` 的 CI 依次执行四平台测试、Windows/macOS 三种分发产物构建和 `latest` Release
 更新。只有前一阶段全部成功才会进入下一阶段；任何测试或打包失败都会保留上一版 Release。Pull Request
-只运行测试，不发布安装包。
+只运行测试，不发布产物。
 
 ## 日志
 
@@ -137,6 +138,7 @@ password、passphrase、token、Bearer 凭据和私钥标记做持久化前脱�
 - 主机密钥校验沿用用户 `.ssh/config` 与 OpenSSH 默认策略，应用不会降低现有策略。
 - 启动 OpenSSH 并完整继承其环境需要运行时 `run/env` 权限；代码只启动 `ssh`。
 - Pino 加载时只额外开放 `sys.hostname`；文件日志的基础字段仅包含随机 `sessionId`。
+- Windows 仅开放对 `user32.dll` 的 FFI，用于给原生窗口设置已打包的应用图标。
 - 远端 DSH 页面加载前会移除配置、删除和连接 bindings。
 
 ## 项目结构
@@ -149,6 +151,7 @@ src/profiles.ts     服务器配置校验和持久化
 src/ssh_tunnel.ts   OpenSSH 探测、隧道和错误分类
 src/hidden_process.ts Windows 隐藏进程与安全生命周期适配
 src/open_directory.ts 系统文件管理器调用
+src/windows_window_icon.ts Windows 原生窗口图标
 src/browser_locale.ts 运行时系统 locale 检测
 src/logger.ts       Pino 文件日志配置与脱敏
 src/ui.ts           本地服务器选择页
