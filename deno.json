@@ -69,6 +69,7 @@
     }
   },
   "imports": {
+    "@std/assert": "jsr:@std/assert@^1.0.19",
     "pino": "npm:pino@10.1.0"
   }
 }

@@ -1,3 +1,11 @@
+import {
+  assert,
+  assertEquals,
+  assertExists,
+  assertFalse,
+  assertMatch,
+  assertRejects,
+} from "@std/assert";
 import { basename, join } from "node:path";
 import { resolveAppPaths } from "../src/app_paths.ts";
 import { canonicalSystemLocale, detectSystemLocale } from "../src/browser_locale.ts";
@@ -13,44 +21,6 @@ function env(values: Record<string, string | undefined>): (name: string) => stri
 async function tempFile(name: string): Promise<string> {
   const directory = await Deno.makeTempDir();
   return join(directory, name);
-}
-
-function assert(
-  condition: unknown,
-  message = "Expected condition to be truthy",
-): asserts condition {
-  if (!condition) throw new Error(message);
-}
-
-function assertFalse(condition: unknown, message = "Expected condition to be falsey"): void {
-  if (condition) throw new Error(message);
-}
-
-function assertEquals(actual: unknown, expected: unknown): void {
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    throw new Error(`Expected ${JSON.stringify(actual)} to equal ${JSON.stringify(expected)}`);
-  }
-}
-
-function assertMatch(actual: string, expected: RegExp): void {
-  if (!expected.test(actual)) throw new Error(`Expected ${actual} to match ${expected}`);
-}
-
-function assertExists<T>(value: T | null | undefined): asserts value is T {
-  if (value === null || value === undefined) throw new Error("Expected value to exist");
-}
-
-async function assertRejects<T extends Error>(
-  action: () => Promise<unknown>,
-  ErrorClass: new (...args: never[]) => T,
-): Promise<T> {
-  try {
-    await action();
-  } catch (error) {
-    if (error instanceof ErrorClass) return error;
-    throw new Error(`Expected ${ErrorClass.name}, got ${error}`);
-  }
-  throw new Error(`Expected ${ErrorClass.name} to be thrown`);
 }
 
 Deno.test("resolveAppPaths uses the native platform path rules", () => {
