@@ -12,8 +12,10 @@ const SM_CYSMICON = 50;
 
 export function setWindowsWindowIcon(title: string): () => void {
   if (Deno.build.os !== "windows") return () => {};
+  const systemRoot = Deno.env.get("SystemRoot");
+  if (!systemRoot) throw new Error("SystemRoot is unavailable");
   const user32 = Deno.dlopen(
-    "user32.dll",
+    join(systemRoot, "System32", "user32.dll"),
     {
       DestroyIcon: { parameters: ["pointer"], result: "bool" },
       FindWindowW: { parameters: ["pointer", "buffer"], result: "pointer" },

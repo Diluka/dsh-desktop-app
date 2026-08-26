@@ -138,7 +138,8 @@ password、passphrase、token、Bearer 凭据和私钥标记做持久化前脱�
 - 主机密钥校验沿用用户 `.ssh/config` 与 OpenSSH 默认策略，应用不会降低现有策略。
 - 启动 OpenSSH 并完整继承其环境需要运行时 `run/env` 权限；代码只启动 `ssh`。
 - Pino 加载时只额外开放 `sys.hostname`；文件日志的基础字段仅包含随机 `sessionId`。
-- Windows 仅开放对 `user32.dll` 的 FFI，用于给原生窗口设置已打包的应用图标。
+- Windows 通过 FFI 加载系统目录中的 `user32.dll`，用于给原生窗口设置已打包的应用图标；远端页面没有
+  FFI binding。
 - 远端 DSH 页面加载前会移除配置、删除和连接 bindings。
 
 ## 项目结构
