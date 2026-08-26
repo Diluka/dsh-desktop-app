@@ -30,7 +30,7 @@ await logger.info(
 );
 
 const shellUrl = resolveShellUrl();
-Deno.serve(handleShellRequest);
+Deno.serve({ hostname: "127.0.0.1" }, handleShellRequest);
 const window = new Deno.BrowserWindow({
   title: "DSH Desktop",
   width: 1180,

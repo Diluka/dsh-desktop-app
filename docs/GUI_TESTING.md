@@ -9,8 +9,9 @@
 1. 确认目标机器可执行 `ssh -V`。
 2. 在 `~/.ssh/config`（Windows 为 `%USERPROFILE%\.ssh\config`）准备一个可通过密钥或 `ssh-agent`
    非交互登录的 Host 别名。
-3. 确认远端 DSH Web 已监听远端回环地址，记录实际端口；默认是 `3080`。
-4. 从仓库执行 `deno task check`，再构建目标平台目录包。
+3. 在终端执行一次 `ssh <Host别名> true`，完成首次主机密钥确认并验证非交互认证。
+4. 确认远端 DSH Web 已监听远端回环地址，记录实际端口；默认是 `3080`。
+5. 从仓库执行 `deno task check`，再构建目标平台目录包。
 
 > [!NOTE]
 > 从 WSL 交叉构建 Windows 后，请把整个 `dist/windows/DshDesktop/` 目录复制到 Windows

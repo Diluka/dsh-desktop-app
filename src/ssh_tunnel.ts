@@ -139,8 +139,6 @@ export function buildSshArguments(profile: ServerProfile, localPort: number): st
     "ServerAliveInterval=30",
     "-o",
     "ServerAliveCountMax=3",
-    "-o",
-    "StrictHostKeyChecking=accept-new",
     "-L",
     `127.0.0.1:${localPort}:127.0.0.1:${profile.remotePort}`,
     "--",
@@ -280,6 +278,7 @@ function monitorStderr(
   onLine: (line: string) => void,
 ): { done: Promise<readonly string[]> } {
   const tail: string[] = [];
+  let privateKeyBlock = false;
   const done = (async () => {
     const reader = stream.getReader();
     const decoder = new TextDecoder();
@@ -304,6 +303,18 @@ function monitorStderr(
   return { done };
 
   function recordLine(raw: string): void {
+    const beginsPrivateKey = /-----BEGIN [^-\r\n]*PRIVATE KEY-----/iu.test(raw);
+    const endsPrivateKey = /-----END [^-\r\n]*PRIVATE KEY-----/iu.test(raw);
+    if (privateKeyBlock) {
+      if (endsPrivateKey) privateKeyBlock = false;
+      return;
+    }
+    if (beginsPrivateKey) {
+      privateKeyBlock = !endsPrivateKey;
+      storeLine("[REDACTED PRIVATE KEY MATERIAL]");
+      return;
+    }
+
     const line = Array.from(raw)
       .filter((character) => {
         const code = character.charCodeAt(0);
@@ -311,7 +322,10 @@ function monitorStderr(
       })
       .join("")
       .trim();
-    if (!line) return;
+    if (line) storeLine(line);
+  }
+
+  function storeLine(line: string): void {
     tail.push(line.slice(0, 2_000));
     if (tail.length > 20) tail.shift();
     onLine(line.slice(0, 2_000));
@@ -332,7 +346,10 @@ function classifySshFailure(stderr: readonly string[]): TunnelError {
     );
   }
   if (/host key verification failed|remote host identification has changed/iu.test(detail)) {
-    return new TunnelError("HOST_KEY_FAILED", "SSH 主机密钥校验失败，请检查 known_hosts");
+    return new TunnelError(
+      "HOST_KEY_FAILED",
+      "SSH 主机密钥校验失败；请先在终端确认新主机，或检查 known_hosts",
+    );
   }
   if (/could not resolve hostname|name or service not known/iu.test(detail)) {
     return new TunnelError("HOST_NOT_FOUND", "无法解析 SSH Host，请检查 .ssh/config 中的 Host");

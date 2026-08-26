@@ -67,7 +67,7 @@ export class JsonlLogger {
       level,
       sessionId: this.sessionId,
       event,
-      message: truncate(message, 2_000),
+      message: sanitizeText(message, 2_000),
       ...(context ? { context: sanitizeContext(context) } : {}),
     };
     const line = `${JSON.stringify(entry)}\n`;
@@ -83,7 +83,9 @@ export class JsonlLogger {
       : level === "warn"
       ? console.warn
       : console.log;
-    consoleMethod(`[${entry.timestamp}] ${level.toUpperCase()} ${event}: ${entry.message}`);
+    consoleMethod(
+      `[${entry.timestamp}] ${level.toUpperCase()} ${event}: ${truncate(entry.message, 500)}`,
+    );
     return write;
   }
 }
@@ -92,20 +94,40 @@ export function errorContext(error: unknown): LogContext {
   if (error instanceof Error) {
     return {
       errorName: error.name,
-      errorMessage: truncate(error.message, 2_000),
-      errorStack: truncate(error.stack ?? "", 4_000),
+      errorMessage: sanitizeText(error.message, 2_000),
+      errorStack: sanitizeText(error.stack ?? "", 4_000),
     };
   }
-  return { errorMessage: truncate(String(error), 2_000) };
+  return { errorMessage: sanitizeText(String(error), 2_000) };
 }
 
 function sanitizeContext(context: LogContext): LogContext {
   return Object.fromEntries(
     Object.entries(context).map(([key, value]) => [
       key,
-      typeof value === "string" ? truncate(value, 4_000) : value,
+      typeof value !== "string"
+        ? value
+        : /password|passphrase|token|secret|authorization/iu.test(key)
+        ? "[REDACTED]"
+        : sanitizeText(value, 4_000),
     ]),
   );
+}
+
+function sanitizeText(value: string, maxLength: number): string {
+  const redacted = value
+    .replace(
+      /\bauthorization\s*:\s*bearer\s+[^\s,;]+/giu,
+      "Authorization: Bearer [REDACTED]",
+    )
+    .replace(/\bbearer\s+[a-z0-9._~+\/-]+=*/giu, "Bearer [REDACTED]")
+    .replace(
+      /\b(password|passphrase|token|secret)\b(\s*[:=]\s*)[^\s,;]+/giu,
+      "$1$2[REDACTED]",
+    )
+    .replace(/-----BEGIN [^-\r\n]*PRIVATE KEY-----/giu, "[REDACTED PRIVATE KEY]")
+    .replace(/-----END [^-\r\n]*PRIVATE KEY-----/giu, "[REDACTED PRIVATE KEY]");
+  return truncate(redacted, maxLength);
 }
 
 function truncate(value: string, maxLength: number): string {

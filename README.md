@@ -44,7 +44,9 @@ Host my-dsh
   # ProxyJump bastion
 ```
 
-应用中的 **SSH Host / 别名** 填 `my-dsh`，**DSH Web 端口**填远端实际端口。
+应用中的 **SSH Host / 别名** 填 `my-dsh`，**DSH Web
+端口**填远端实际端口。首次连接新主机前，请先在终端执行 `ssh my-dsh true`
+完成主机密钥确认；桌面应用使用非交互模式并尊重 `.ssh/config` 中的 host-key 策略。
 
 ## 开发与检查
 
@@ -98,8 +100,9 @@ ssh.tunnel_exited
 app.stopped
 ```
 
-失败时重点查看 `ssh.stderr` 与 `ssh.connect_failed`。日志不记录密码、私钥内容或内部页面 URL；OpenSSH
-自己的诊断可能包含 Host、用户名或本地文件路径，外发前请按需脱敏。
+失败时重点查看 `ssh.stderr` 与 `ssh.connect_failed`。日志会对常见的
+password、passphrase、token、Bearer 凭据和私钥标记做持久化前脱敏，也不记录内部页面 URL；OpenSSH
+自己的诊断仍可能包含 Host、用户名或本地文件路径，外发前请按需脱敏。
 
 完整 GUI 验证与日志回传步骤见 [`docs/GUI_TESTING.md`](docs/GUI_TESTING.md)。
 
@@ -108,7 +111,7 @@ app.stopped
 - SSH 通过 `Deno.Command` 参数数组启动，不经过 shell 拼接。
 - 转发固定为 `127.0.0.1:<自动端口> -> 127.0.0.1:<远端 DSH 端口>`。
 - `BatchMode=yes` 防止无界面的密码提示卡住应用。
-- `StrictHostKeyChecking=accept-new` 自动接受首次出现的主机密钥，已记录主机发生变化时仍会失败。
+- 主机密钥校验沿用用户 `.ssh/config` 与 OpenSSH 默认策略，应用不会降低现有策略。
 - 远端 DSH 页面加载前会移除配置、删除和连接 bindings。
 
 ## 项目结构

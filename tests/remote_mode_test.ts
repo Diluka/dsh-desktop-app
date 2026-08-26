@@ -152,6 +152,7 @@ Deno.test("buildSshArguments creates non-interactive loopback forwarding without
   assert(args.includes("-L"));
   assert(args.includes("127.0.0.1:39001:127.0.0.1:48080"));
   assertFalse(args.some((value) => /ClearAllForwardings/i.test(value)));
+  assertFalse(args.some((value) => /StrictHostKeyChecking/i.test(value)));
   assertEquals(args.at(-2), "--");
   assertEquals(args.at(-1), "prod-dsh");
 });
@@ -206,8 +207,10 @@ Deno.test("startSshTunnel supports fake child ready path and stop lifecycle", as
   });
 });
 
-Deno.test("startSshTunnel classifies fake child authentication failure", async () => {
-  const child = fakeChild("Permission denied (publickey).\n");
+Deno.test("startSshTunnel classifies auth failure without logging private key material", async () => {
+  const child = fakeChild(
+    "-----BEGIN OPENSSH PRIVATE KEY-----\nsecretbase64\n-----END OPENSSH PRIVATE KEY-----\nPermission denied (publickey).\n",
+  );
   child.finish({ success: false, code: 255, signal: null });
 
   const logger = await memoryLogger();
@@ -224,6 +227,10 @@ Deno.test("startSshTunnel classifies fake child authentication failure", async (
     TunnelError,
   );
   assertEquals(error.code, "AUTH_FAILED");
+  await logger.flush();
+  const log = await Deno.readTextFile(logger.filePath);
+  assertFalse(log.includes("secretbase64"));
+  assert(log.includes("[REDACTED PRIVATE KEY MATERIAL]"));
 });
 
 Deno.test("JsonlLogger writes JSONL fields and errorContext", async () => {
@@ -233,7 +240,12 @@ Deno.test("JsonlLogger writes JSONL fields and errorContext", async () => {
     now: () => new Date("2025-01-02T03:04:05.000Z"),
   });
 
-  await logger.error("ssh.failed", "x".repeat(2100), { detail: "y".repeat(4100), ok: false });
+  await logger.error("ssh.failed", "x".repeat(2100), {
+    detail: "y".repeat(4100),
+    token: "should-never-be-written",
+    note: "password=hunter2 Authorization: Bearer abc123",
+    ok: false,
+  });
   await logger.flush();
 
   assertEquals(basename(logger.filePath), "dsh-desktop-2025-01-02.jsonl");
@@ -246,6 +258,9 @@ Deno.test("JsonlLogger writes JSONL fields and errorContext", async () => {
   assertEquals(entry.event, "ssh.failed");
   assertEquals(entry.message.length, 2003);
   assertEquals(entry.context.detail.length, 4003);
+  assertEquals(entry.context.token, "[REDACTED]");
+  assertFalse(entry.context.note.includes("hunter2"));
+  assertFalse(entry.context.note.includes("abc123"));
   assertEquals(entry.context.ok, false);
 
   const context = errorContext(new TypeError("boom"));
