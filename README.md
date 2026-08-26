@@ -129,6 +129,7 @@ password、passphrase、token、Bearer 凭据和私钥标记做持久化前脱�
 
 ```text
 main.ts             桌面生命周期、bindings 与安全导航
+assets/             SVG 源图、1024px PNG、Windows ICO 与 macOS ICNS
 src/profiles.ts     服务器配置校验和持久化
 src/ssh_tunnel.ts   OpenSSH 探测、隧道和错误分类
 src/hidden_process.ts Windows 隐藏进程与安全生命周期适配
