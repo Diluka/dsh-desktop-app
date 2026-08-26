@@ -103,15 +103,28 @@ export function monitorProcessStderr(
     let pending = "";
     try {
       while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        pending += decoder.decode(value, { stream: true });
+        const { done: readDone, value } = await reader.read();
+        pending += readDone ? decoder.decode() : decoder.decode(value, { stream: true });
         const lines = pending.split(/\r?\n/u);
-        pending = lines.pop() ?? "";
-        for (const line of lines) storeLine(line);
+        pending = readDone ? "" : lines.pop() ?? "";
+
+        for (const raw of lines) {
+          const line = Array.from(raw)
+            .filter((character) => {
+              const code = character.charCodeAt(0);
+              return code === 9 || (code >= 32 && code !== 127);
+            })
+            .join("")
+            .trim();
+          if (!line) continue;
+
+          const clipped = line.slice(0, 2_000);
+          tail.push(clipped);
+          if (tail.length > 20) tail.shift();
+          onLine(clipped);
+        }
+        if (readDone) break;
       }
-      pending += decoder.decode();
-      if (pending) storeLine(pending);
     } finally {
       reader.releaseLock();
     }
@@ -119,20 +132,4 @@ export function monitorProcessStderr(
   })();
 
   return { done };
-
-  function storeLine(raw: string): void {
-    const line = Array.from(raw)
-      .filter((character) => {
-        const code = character.charCodeAt(0);
-        return code === 9 || (code >= 32 && code !== 127);
-      })
-      .join("")
-      .trim();
-    if (!line) return;
-
-    const clipped = line.slice(0, 2_000);
-    tail.push(clipped);
-    if (tail.length > 20) tail.shift();
-    onLine(clipped);
-  }
 }
