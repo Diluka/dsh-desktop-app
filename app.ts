@@ -61,24 +61,26 @@ async function startDesktopWithShellServer(
     }, "Recovered from an invalid profile file");
   }
 
-  const [ssh, localDshEnvironment] = await Promise.all([
+  const environmentReady = Promise.all([
     probeOpenSsh(),
     probeLocalDshEnvironment(),
-  ]);
-  const localDshLauncher = localDshEnvironment.launcher;
-  logger.info({
-    event: "ssh.probe",
-    available: ssh.available,
-    version: ssh.version ?? "unknown",
-  }, ssh.available ? "OpenSSH Client is available" : "OpenSSH Client is unavailable");
-  logger.info({
-    event: "local_dsh.probe",
-    available: Boolean(localDshLauncher),
-    launcher: localDshLauncher?.kind ?? "unavailable",
-    nodeVersion: localDshEnvironment.node?.version ?? "unavailable",
-    dshVersion: localDshEnvironment.dsh?.version ?? "unavailable",
-    npxVersion: localDshEnvironment.npx?.version ?? "unavailable",
-  }, localDshLauncher ? "Local DSH launcher is available" : "Local DSH launcher is unavailable");
+  ]).then(([ssh, localDshEnvironment]) => {
+    const localDshLauncher = localDshEnvironment.launcher;
+    logger.info({
+      event: "ssh.probe",
+      available: ssh.available,
+      version: ssh.version ?? "unknown",
+    }, ssh.available ? "OpenSSH Client is available" : "OpenSSH Client is unavailable");
+    logger.info({
+      event: "local_dsh.probe",
+      available: Boolean(localDshLauncher),
+      launcher: localDshLauncher?.kind ?? "unavailable",
+      nodeVersion: localDshEnvironment.node?.version ?? "unavailable",
+      dshVersion: localDshEnvironment.dsh?.version ?? "unavailable",
+      npxVersion: localDshEnvironment.npx?.version ?? "unavailable",
+    }, localDshLauncher ? "Local DSH launcher is available" : "Local DSH launcher is unavailable");
+    return { ssh, localDshEnvironment, localDshLauncher };
+  });
 
   const iconLookupTitle = Deno.build.os === "windows" ? `DSH Desktop ${Deno.pid}` : "DSH Desktop";
   const window = backend === "webview"
@@ -130,22 +132,24 @@ async function startDesktopWithShellServer(
   function bindShell(): void {
     if (shellBindingsActive) return;
     // Deno 2.9 BrowserWindow.bind requires handlers to return a Promise.
-    // deno-lint-ignore require-await
-    window.bind("bootstrap", async () => ({
-      profiles: store.list(),
-      ssh,
-      localEnvironment: {
-        platform: `${Deno.build.os} ${Deno.build.arch}`,
-        nodeVersion: localDshEnvironment.node?.version,
-        dshVersion: localDshEnvironment.dsh?.version,
-        npxVersion: localDshEnvironment.npx?.version,
-        launcher: localDshLauncher?.kind,
-        canStart: Boolean(localDshLauncher),
-      },
-      logDirectory: paths.logDirectory,
-      browserBackend: backend === "webview" ? "Microsoft Edge WebView2" : "Chromium / CEF",
-      ...(startupNotice ? { startupNotice } : {}),
-    }));
+    window.bind("bootstrap", async () => {
+      const { ssh, localDshEnvironment, localDshLauncher } = await environmentReady;
+      return {
+        profiles: store.list(),
+        ssh,
+        localEnvironment: {
+          platform: `${Deno.build.os} ${Deno.build.arch}`,
+          nodeVersion: localDshEnvironment.node?.version,
+          dshVersion: localDshEnvironment.dsh?.version,
+          npxVersion: localDshEnvironment.npx?.version,
+          launcher: localDshLauncher?.kind,
+          canStart: Boolean(localDshLauncher),
+        },
+        logDirectory: paths.logDirectory,
+        browserBackend: backend === "webview" ? "Microsoft Edge WebView2" : "Chromium / CEF",
+        ...(startupNotice ? { startupNotice } : {}),
+      };
+    });
     window.bind("saveProfile", async (input: ServerProfileInput) => {
       try {
         const profile = await store.save(input);
@@ -222,6 +226,7 @@ async function startDesktopWithShellServer(
 
   async function connectProfile(id: unknown): Promise<void> {
     if (connecting) throw new Error("已有连接正在建立，请稍候");
+    const { ssh } = await environmentReady;
     if (!ssh.available) throw new Error(ssh.installHelp ?? "未找到 OpenSSH Client");
     if (typeof id !== "string") throw new Error("服务器 ID 无效");
 
@@ -263,6 +268,7 @@ async function startDesktopWithShellServer(
 
   async function connectLocal(): Promise<void> {
     if (connecting) throw new Error("已有连接正在建立，请稍候");
+    const { localDshLauncher } = await environmentReady;
     if (!localDshLauncher) throw localDshInstallError();
     const controller = new AbortController();
     localStartController = controller;

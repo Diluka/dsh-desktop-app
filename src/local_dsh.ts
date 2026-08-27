@@ -9,6 +9,7 @@ import { allocateLoopbackPort, probeHttp } from "./loopback_http.ts";
 
 const MAX_LOCAL_PORT_ATTEMPTS = 3;
 const COMMAND_PROBE_TIMEOUT_MS = 5_000;
+const COMMAND_PATH_TIMEOUT_MS = 10_000;
 const NPX_DSH_PACKAGE = "@deepseek-ai/dsh";
 
 export type LocalDshErrorCode =
@@ -125,14 +126,26 @@ export async function probeLocalDshEnvironment(
   probe: (command: string, args: string[]) => Promise<CommandProbeOutput> = (command, args) =>
     runHiddenCommand(command, args, COMMAND_PROBE_TIMEOUT_MS),
   os: typeof Deno.build.os = Deno.build.os,
-  resolveFromShell: (command: string) => Promise<string | undefined> = (command) =>
-    resolveCommandPath(command, os),
+  resolveCommands: (commands: string[]) => Promise<Record<string, string>> = (commands) =>
+    resolveCommandPaths(commands, os),
 ): Promise<LocalDshEnvironment> {
   const commandExtension = os === "windows" ? ".cmd" : "";
+  const nodeName = "node";
+  const dshName = `dsh${commandExtension}`;
+  const npxName = `npx${commandExtension}`;
+  const [directDsh, directNpx, resolved] = await Promise.all([
+    probeLocalTool(dshName, probe),
+    probeLocalTool(npxName, probe),
+    resolveCommands([nodeName, dshName, npxName]).catch(
+      (): Record<string, string> => ({}),
+    ),
+  ]);
   const [nodeProbe, dshProbe, npxProbe] = await Promise.all([
-    probeLocalTool("node", probe, resolveFromShell, true),
-    probeLocalTool(`dsh${commandExtension}`, probe, resolveFromShell),
-    probeLocalTool(`npx${commandExtension}`, probe, resolveFromShell),
+    resolved[nodeName]
+      ? probeLocalTool(resolved[nodeName], probe)
+      : Promise.resolve<LocalToolProbeResult>({ missing: true }),
+    directDsh.missing && resolved[dshName] ? probeLocalTool(resolved[dshName], probe) : directDsh,
+    directNpx.missing && resolved[npxName] ? probeLocalTool(resolved[npxName], probe) : directNpx,
   ]);
   const node = nodeProbe.info;
   const dsh = dshProbe.info;
@@ -146,31 +159,14 @@ export async function probeLocalDshEnvironment(
 }
 
 async function probeLocalTool(
-  initialCommand: string,
+  command: string,
   probe: (command: string, args: string[]) => Promise<CommandProbeOutput>,
-  resolveFromShell: (command: string) => Promise<string | undefined>,
-  resolveBeforeProbe = false,
 ): Promise<LocalToolProbeResult> {
-  let command = initialCommand;
-  if (resolveBeforeProbe) {
-    const resolved = await resolveFromShell(command).catch(() => undefined);
-    if (!resolved) return { missing: true };
-    command = resolved;
-  }
   let output: CommandProbeOutput;
   try {
     output = await probe(command, ["--version"]);
   } catch (error) {
-    if (!isCommandNotFoundError(error)) return { missing: false };
-    if (resolveBeforeProbe) return { missing: true };
-    const resolved = await resolveFromShell(command).catch(() => undefined);
-    if (!resolved) return { missing: true };
-    command = resolved;
-    try {
-      output = await probe(command, ["--version"]);
-    } catch (resolvedError) {
-      return { missing: isCommandNotFoundError(resolvedError) };
-    }
+    return { missing: isCommandNotFoundError(error) };
   }
   if (!output.success) return { missing: false };
   const version = [output.stdout, output.stderr]
@@ -179,41 +175,46 @@ async function probeLocalTool(
   return version ? { info: { command, version }, missing: false } : { missing: false };
 }
 
-async function resolveCommandPath(
-  command: string,
+async function resolveCommandPaths(
+  commands: string[],
   os: typeof Deno.build.os,
-): Promise<string | undefined> {
-  if (!/^[a-z0-9._-]+$/iu.test(command)) return undefined;
+): Promise<Record<string, string>> {
+  const validCommands = commands.filter((command) => /^[a-z0-9._-]+$/iu.test(command));
   if (os === "windows") {
-    try {
-      const result = await runHiddenCommand("where.exe", [command], COMMAND_PROBE_TIMEOUT_MS);
-      if (!result.success) return undefined;
-      return result.stdout
-        .split(/\r?\n/u)
-        .map((line) => line.trim())
-        .find((line) => /^[a-z]:[\\/]/iu.test(line));
-    } catch {
-      return undefined;
-    }
+    const entries = await Promise.all(validCommands.map(async (command) => {
+      try {
+        const result = await runHiddenCommand("where.exe", [command], COMMAND_PATH_TIMEOUT_MS);
+        const path = result.stdout
+          .split(/\r?\n/u)
+          .map((line) => line.trim())
+          .find((line) => /^[a-z]:[\\/]/iu.test(line));
+        return path ? [command, path] as const : undefined;
+      } catch {
+        return undefined;
+      }
+    }));
+    return Object.fromEntries(entries.filter((entry) => entry !== undefined));
   }
-  const shell = Deno.env.get("SHELL") ?? (os === "darwin" ? "/bin/zsh" : "/bin/sh");
 
+  const shell = Deno.env.get("SHELL") ?? (os === "darwin" ? "/bin/zsh" : "/bin/sh");
+  const marker = "__DSH_DESKTOP_COMMAND__";
+  const script = validCommands
+    .map((command) => `command -v ${command} | sed 's#^#${marker}${command}=#'`)
+    .join("; ");
   try {
-    const marker = "__DSH_DESKTOP_COMMAND__=";
-    const script = `command -v ${command} | sed 's#^#${marker}#'`;
-    const result = await runHiddenCommand(shell, [
-      "-lic",
-      script,
-    ], COMMAND_PROBE_TIMEOUT_MS);
-    if (!result.success) return undefined;
-    const resolved = result.stdout
-      .split(/\r?\n/u)
-      .map((line) => line.trim())
-      .findLast((line) => line.startsWith(marker))
-      ?.slice(marker.length);
-    return resolved?.startsWith("/") ? resolved : undefined;
+    const result = await runHiddenCommand(shell, ["-lic", script], COMMAND_PATH_TIMEOUT_MS);
+    const resolved: Record<string, string> = {};
+    for (const line of result.stdout.split(/\r?\n/u).map((value) => value.trim())) {
+      if (!line.startsWith(marker)) continue;
+      const separator = line.indexOf("=", marker.length);
+      if (separator < 0) continue;
+      const command = line.slice(marker.length, separator);
+      const path = line.slice(separator + 1);
+      if (validCommands.includes(command) && path.startsWith("/")) resolved[command] = path;
+    }
+    return resolved;
   } catch {
-    return undefined;
+    return {};
   }
 }
 

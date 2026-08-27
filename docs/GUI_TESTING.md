@@ -188,7 +188,8 @@ fallback。
 
 ### 12. 本地模式、npx 回退与终止
 
-1. 打开“本地模式”，确认页面显示平台、Node.js、DSH CLI 和 npx 版本；条件不足时启动按钮禁用。
+1. 从 Finder 启动应用，确认窗口立即出现；打开“本地模式”，环境检测完成后显示平台、Node.js、DSH CLI 和
+   npx 版本，条件不足时启动按钮禁用。
 2. 检查应用启动阶段的进程与网络，确认只执行各工具自身的 `--version`，不会执行
    `npx -y @deepseek-ai/dsh --version` 或下载 DSH 包。
 3. PATH 中存在 `dsh` 时点击“启动本地 DSH”，确认直接加载本地 DSH Web。
@@ -198,8 +199,8 @@ fallback。
 7. 再次启动并允许 npx 完成，确认同一窗口加载 DSH Web。
 8. 同时隐藏 `dsh` 和 npx，确认启动按钮保持禁用并显示缺失环境。
 
-预期 JSONL 包含 `local_dsh.npx_fallback`，成功或失败事件包含 `childOutputFile`；npx
-原始下载输出只写入 对应 `.child.log`，不会复制到 JSONL。
+预期 JSONL 包含 `local_dsh.npx_fallback`，成功或失败事件包含 `childOutputFile`。npx
+原始下载输出不会复制到 JSONL，仅写入对应的 `.child.log`。
 
 ## 回报模板
 

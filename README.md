@@ -33,11 +33,14 @@ DSH Web。 Windows 同时提供内置 Chromium（CEF）与系统 WebView2 两种
 - 本地模式需要终端中可用的 DSH CLI（`dsh --version`），或可运行 npx 的 Node.js/npm
 - 远程模式需要 PATH 中可用的 OpenSSH Client（`ssh -V`），且远端机器已启动 DSH Web
 
-应用启动阶段只执行 `node --version`、`dsh --version` 和 `npx --version`，不会通过 npx 下载或运行
-DSH。 macOS/Linux 还会通过用户登录 shell 解析命令路径，兼容由 shell profile 提供 PATH 的 Node
-版本管理器。 只有用户点击启动且未找到 `dsh` 时，应用才执行
-`npx -y @deepseek-ai/dsh`。首次下载耗时可能超过 30
-分钟；本地启动不设置超时，可在等待弹窗中点击“终止启动”。
+本地环境检测和启动遵循以下边界：
+
+- 应用启动阶段只执行 `node --version`、`dsh --version` 和 `npx --version`，不会通过 npx 下载或运行
+  DSH。
+- macOS/Linux 启动一次用户登录 shell，批量解析命令路径，兼容由 shell profile 提供 PATH
+  的版本管理器。
+- 只有用户点击启动且未找到 `dsh` 时，应用才执行 `npx -y @deepseek-ai/dsh`。首次下载可能超过 30
+  分钟；本地启动不设置超时，可在等待弹窗中点击“终止启动”。
 
 Windows 缺少 `ssh` 时，可在“设置 → 系统 → 可选功能”中安装 **OpenSSH 客户端**。Debian/Ubuntu 可执行：
 
