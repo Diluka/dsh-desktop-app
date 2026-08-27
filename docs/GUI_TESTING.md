@@ -170,7 +170,7 @@ tail -f "$(ls -t "$log_dir"/dsh-desktop-*.jsonl | head -n 1)"
 
 在服务器选择页点击“打开目录”，确认 Windows Explorer、macOS Finder 或 Linux
 默认文件管理器打开当前日志目录。 命令成功交给系统时日志包含 `logs.directory_open_requested`。Linux
-缺少 `xdg-open` 或系统命令失败时，页面必须弹窗提示且日志包含 `logs.directory_open_failed`。
+缺少 `xdg-open` 或系统命令失败时，页面必须显示错误提示且日志包含 `logs.directory_open_failed`。
 
 ### 10. Windows 隐藏 OpenSSH 窗口
 
@@ -183,6 +183,11 @@ tail -f "$(ls -t "$log_dir"/dsh-desktop-*.jsonl | head -n 1)"
 解压两个 Windows ZIP 后分别检查各自目录内的 `DSH-Desktop.exe`、运行窗口和任务栏。
 预期均显示项目鱼形图标，而不是 Windows 或浏览器默认图标；若任务栏保留旧缓存，先取消固定再重新固定后
 复查。关闭应用后用新 ZIP 的完整目录覆盖旧目录， 确认应用可正常启动且服务器配置仍保留。
+
+### 12. Windows 中文删除确认
+
+添加一个中文显示名称的服务器并点击“删除”。确认提示应在应用窗口内显示完整中文服务器名；点击“取消”或按
+`Escape` 后配置仍保留，再次打开提示并确认后只删除当前配置。
 
 ## 回报模板
 

@@ -14,6 +14,16 @@ Deno.test("shell html has key elements and parseable inline scripts", () => {
   for (const script of scripts) new Function(script);
 });
 
+Deno.test("shell renders Unicode dialogs in-page instead of using native browser prompts", () => {
+  assertFalse(/\b(?:alert|confirm|prompt)\s*\(/u.test(SHELL_HTML));
+  assertMatch(
+    SHELL_HTML,
+    /<dialog id="delete-confirmation"[^>]+aria-modal="true"[^>]*>/u,
+  );
+  assertMatch(SHELL_HTML, /<form class="confirmation-actions" method="dialog">/u);
+  assertMatch(SHELL_HTML, /deleteConfirmationMessage\.textContent =/u);
+});
+
 Deno.test("handleShellRequest serves safe shell responses without local tunnel internals", async () => {
   const get = handleShellRequest(new Request("http://desktop.local/"));
   assertEquals(get.status, 200);

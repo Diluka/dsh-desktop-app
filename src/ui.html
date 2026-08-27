@@ -36,7 +36,7 @@
       --brand-hover: #4868b2;
       --brand-text: #ffffff;
       --success: #22c55e;
-      --danger: #ec1313;
+      --danger: #c52222;
       --warning-bg: #fef5e7;
       --warning-border: #f7ad31;
       --warning-text: #8a5a13;
@@ -310,6 +310,15 @@
     }
     .button.secondary {
       background: transparent;
+    }
+    .button.danger {
+      border-color: var(--danger);
+      color: var(--danger);
+      background: transparent;
+    }
+    .button.danger:hover:not(:disabled) {
+      border-color: var(--danger);
+      background: var(--surface-hover);
     }
     .button.small {
       min-height: 34px;
@@ -601,6 +610,15 @@
       font-size: 13px;
       line-height: 20px;
     }
+    .confirmation::backdrop {
+      background: var(--overlay);
+    }
+    .confirmation-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 22px;
+    }
     .connecting-steps {
       display: grid;
       gap: 8px;
@@ -787,6 +805,16 @@
       </main>
     </div>
 
+    <dialog id="delete-confirmation" class="connecting-card confirmation" aria-modal="true"
+      aria-labelledby="delete-confirmation-title" aria-describedby="delete-confirmation-message">
+      <h3 id="delete-confirmation-title">删除服务器</h3>
+      <p id="delete-confirmation-message"></p>
+      <form class="confirmation-actions" method="dialog">
+        <button class="button secondary" type="submit" value="cancel" autofocus>取消</button>
+        <button class="button danger" type="submit" value="confirm">删除</button>
+      </form>
+    </dialog>
+
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
     <div id="connecting" class="connecting" role="dialog" aria-modal="true"
       aria-labelledby="connecting-title" hidden>
@@ -818,6 +846,8 @@
       var notice = document.getElementById("notice");
       var toast = document.getElementById("toast");
       var connecting = document.getElementById("connecting");
+      var deleteConfirmation = document.getElementById("delete-confirmation");
+      var deleteConfirmationMessage = document.getElementById("delete-confirmation-message");
       var toastTimer;
       var themeMedia = window.matchMedia("(prefers-color-scheme: dark)");
       var themeButtons = Array.from(document.querySelectorAll(".theme-option"));
@@ -978,7 +1008,7 @@
         try {
           await globalThis.bindings.openLogDirectory();
         } catch (error) {
-          alert(errorMessage(error));
+          showToast(errorMessage(error));
         } finally {
           button.disabled = false;
         }
@@ -1007,8 +1037,19 @@
         }
       }
 
+      function confirmProfileDeletion(profileName) {
+        deleteConfirmationMessage.textContent = "删除服务器“" + profileName + "”？";
+        deleteConfirmation.returnValue = "";
+        return new Promise(function (resolve) {
+          deleteConfirmation.addEventListener("close", function () {
+            resolve(deleteConfirmation.returnValue === "confirm");
+          }, { once: true });
+          deleteConfirmation.showModal();
+        });
+      }
+
       async function deleteProfile(profile) {
-        if (!confirm("删除服务器“" + profile.name + "”？")) return;
+        if (!(await confirmProfileDeletion(profile.name))) return;
         try {
           await globalThis.bindings.deleteProfile(profile.id);
           state.profiles = state.profiles.filter(function (item) {
