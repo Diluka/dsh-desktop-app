@@ -204,26 +204,31 @@ Deno.test("startSshTunnel keeps child output out of the app log", async () => {
   assertFalse(log.includes("debug: connecting"));
 });
 
-Deno.test("startSshTunnel classifies host key verification failures", async () => {
-  const { logger } = await memoryLogger();
-  const error = await startAndClassify("Host key verification failed.\n", logger);
-  assertEquals(error.code, "HOST_KEY_FAILED");
-});
-
-Deno.test("startSshTunnel classifies missing hosts", async () => {
-  const { logger } = await memoryLogger();
-  const error = await startAndClassify("Could not resolve hostname prod-dsh\n", logger);
-  assertEquals(error.code, "HOST_NOT_FOUND");
-});
-
-Deno.test("startSshTunnel classifies SSH connection failures", async () => {
-  const { logger } = await memoryLogger();
-  const error = await startAndClassify(
-    "ssh: connect to host prod-dsh port 22: Connection refused\n",
-    logger,
-  );
-  assertEquals(error.code, "CONNECTION_FAILED");
-});
+for (
+  const { name, stderr, code } of [
+    {
+      name: "host key verification failures",
+      stderr: "Host key verification failed.\n",
+      code: "HOST_KEY_FAILED",
+    },
+    {
+      name: "missing hosts",
+      stderr: "Could not resolve hostname prod-dsh\n",
+      code: "HOST_NOT_FOUND",
+    },
+    {
+      name: "SSH connection failures",
+      stderr: "ssh: connect to host prod-dsh port 22: Connection refused\n",
+      code: "CONNECTION_FAILED",
+    },
+  ] as const
+) {
+  Deno.test(`startSshTunnel classifies ${name}`, async () => {
+    const { logger } = await memoryLogger();
+    const error = await startAndClassify(stderr, logger);
+    assertEquals(error.code, code);
+  });
+}
 
 async function startAndClassify(
   stderr: string,

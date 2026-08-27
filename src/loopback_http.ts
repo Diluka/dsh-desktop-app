@@ -14,5 +14,11 @@ export async function probeHttp(url: string): Promise<void> {
     redirect: "manual",
     signal: AbortSignal.timeout(1_500),
   });
-  await response.body?.cancel();
+  try {
+    if (response.status < 200 || response.status >= 400) {
+      throw new Error(`HTTP probe failed with status ${response.status}`);
+    }
+  } finally {
+    await response.body?.cancel();
+  }
 }

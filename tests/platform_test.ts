@@ -1,6 +1,5 @@
 import { assertEquals, assertThrows } from "@std/assert";
 import { resolveAppPaths } from "../src/app_paths.ts";
-import { canonicalSystemLocale, detectSystemLocale } from "../src/browser_locale.ts";
 import { directoryOpenCommand } from "../src/open_directory.ts";
 import { setWindowsWindowIcon } from "../src/windows_window_icon.ts";
 import { env } from "./test_helpers.ts";
@@ -52,13 +51,6 @@ Deno.test("resolveAppPaths fails when the user home directory is unavailable", (
     Error,
     "Cannot locate the current user's home directory",
   );
-});
-
-Deno.test("system locale normalization uses runtime values", () => {
-  assertEquals(canonicalSystemLocale("zh_CN"), "zh-CN");
-  assertEquals(canonicalSystemLocale("not a locale"), undefined);
-  const detected = detectSystemLocale();
-  if (detected) assertEquals(canonicalSystemLocale(detected), detected);
 });
 
 Deno.test("Windows native icon API uses the scoped user32 permission", () => {

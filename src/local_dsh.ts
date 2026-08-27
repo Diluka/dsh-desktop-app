@@ -6,6 +6,7 @@ import {
   runHiddenCommand,
 } from "./hidden_process.ts";
 import { allocateLoopbackPort, probeHttp } from "./loopback_http.ts";
+import { ManagedEndpoint, type ManagedEndpointExit } from "./managed_endpoint.ts";
 
 const MAX_LOCAL_PORT_ATTEMPTS = 3;
 const COMMAND_PATH_TIMEOUT_MS = 10_000;
@@ -64,56 +65,9 @@ interface StartLocalDshOptions {
   readonly signal?: AbortSignal;
 }
 
-export interface LocalDshExit {
-  readonly success: boolean;
-  readonly code: number;
-  readonly signal: string | null;
-  readonly error?: Error;
-  readonly stopRequested: boolean;
-}
+export type LocalDshExit = ManagedEndpointExit;
 
-export class LocalDshWeb {
-  readonly exited: Promise<LocalDshExit>;
-  #finished = false;
-  #stopRequested = false;
-
-  readonly outputFile: string;
-
-  constructor(
-    readonly url: string,
-    private readonly child: ManagedHiddenProcess,
-    private readonly delay: (milliseconds: number) => Promise<void>,
-  ) {
-    this.outputFile = child.outputFile;
-    this.exited = (async () => {
-      const status = await child.status;
-      this.#finished = true;
-      return {
-        ...status,
-        stopRequested: this.#stopRequested,
-      };
-    })();
-  }
-
-  async stop(): Promise<void> {
-    if (this.#finished) return;
-    this.#stopRequested = true;
-    try {
-      this.child.kill("SIGTERM");
-    } catch {
-      return;
-    }
-
-    await Promise.race([this.exited.then(() => undefined), this.delay(2_000)]);
-    if (this.#finished) return;
-    try {
-      this.child.kill("SIGKILL");
-    } catch {
-      // The process may have exited between the status check and kill.
-    }
-    await this.exited.catch(() => undefined);
-  }
-}
+export class LocalDshWeb extends ManagedEndpoint {}
 
 export function buildDshWebArguments(port: number): string[] {
   if (!Number.isInteger(port) || port < 1 || port > 65535) {

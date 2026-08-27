@@ -6,6 +6,7 @@ import {
   runHiddenCommand,
 } from "./hidden_process.ts";
 import { allocateLoopbackPort, probeHttp } from "./loopback_http.ts";
+import { ManagedEndpoint, type ManagedEndpointExit } from "./managed_endpoint.ts";
 import type { ServerProfile } from "./profiles.ts";
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 20_000;
@@ -45,56 +46,9 @@ interface StartTunnelOptions {
   readonly now?: () => number;
 }
 
-export interface TunnelExit {
-  readonly success: boolean;
-  readonly code: number;
-  readonly signal: string | null;
-  readonly error?: Error;
-  readonly stopRequested: boolean;
-}
+export type TunnelExit = ManagedEndpointExit;
 
-export class SshTunnel {
-  readonly exited: Promise<TunnelExit>;
-  #finished = false;
-  #stopRequested = false;
-
-  readonly outputFile: string;
-
-  constructor(
-    readonly url: string,
-    private readonly child: ManagedHiddenProcess,
-    private readonly delay: (milliseconds: number) => Promise<void>,
-  ) {
-    this.outputFile = child.outputFile;
-    this.exited = (async () => {
-      const status = await child.status;
-      this.#finished = true;
-      return {
-        ...status,
-        stopRequested: this.#stopRequested,
-      };
-    })();
-  }
-
-  async stop(): Promise<void> {
-    if (this.#finished) return;
-    this.#stopRequested = true;
-    try {
-      this.child.kill("SIGTERM");
-    } catch {
-      return;
-    }
-
-    await Promise.race([this.exited.then(() => undefined), this.delay(2_000)]);
-    if (this.#finished) return;
-    try {
-      this.child.kill("SIGKILL");
-    } catch {
-      // The process may have exited between the status check and kill.
-    }
-    await this.exited.catch(() => undefined);
-  }
-}
+export class SshTunnel extends ManagedEndpoint {}
 
 export async function probeOpenSsh(
   os: typeof Deno.build.os = Deno.build.os,
