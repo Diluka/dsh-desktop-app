@@ -94,8 +94,6 @@ Deno.test("probeLocalDshEnvironment selects a login-shell npx launcher when dsh 
   const environment = await probeLocalDshEnvironment(
     () =>
       Promise.resolve(loginShellOutput({
-        "node.command": "/Users/alice/.nvm/current/bin/node",
-        "node.version": "v24.19.0",
         "npx.command": "/Users/alice/.nvm/current/bin/npx",
         "npx.version": "11.6.2",
       })),
@@ -134,10 +132,10 @@ Deno.test("probeLocalDshEnvironment keeps native Windows command resolution", as
   const environment = await probeLocalDshEnvironment(
     (command) => {
       if (command === "dsh.cmd") return Promise.reject(new Deno.errors.NotFound("missing dsh"));
-      return Promise.resolve(versionOutput(command.endsWith("node.exe") ? "v24.19.0" : "11.6.2"));
+      return Promise.resolve(versionOutput("11.6.2"));
     },
     "windows",
-    () => Promise.resolve({ node: "C:\\tools\\node.exe" }),
+    NO_PATH_RESOLUTION,
   );
 
   assertEquals(environment.launcher, {

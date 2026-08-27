@@ -161,7 +161,7 @@ async function probeLoginShellEnvironment(
   const dshPresent = Boolean(values["dsh.command"]);
   const launcher: LocalDshLauncher | undefined = dsh
     ? { kind: "dsh", command: shell, prefix: ["-lic", LOGIN_SHELL_EXEC, "dsh"] }
-    : !dshPresent && node && npx
+    : !dshPresent && npx
     ? {
       kind: "npx",
       command: shell,
@@ -212,7 +212,7 @@ async function probeWindowsEnvironment(
   const npx = npxProbe.info;
   const launcher: LocalDshLauncher | undefined = dsh
     ? { kind: "dsh", command: dsh.command, prefix: [] }
-    : dshProbe.missing && node && npx
+    : dshProbe.missing && npx
     ? { kind: "npx", command: npx.command, prefix: ["-y", NPX_DSH_PACKAGE] }
     : undefined;
   return { node, dsh, npx, launcher };

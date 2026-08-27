@@ -30,7 +30,7 @@ DSH Web。 Windows 同时提供内置 Chromium（CEF）与系统 WebView2 两种
 
 - [Deno 2.9+](https://docs.deno.com/runtime/desktop/)
 - Windows 10/11、现代 x86_64 Linux，或 Intel/Apple Silicon macOS
-- 本地模式需要终端中可用的 DSH CLI（`dsh --version`），或可运行 npx 的 Node.js/npm
+- 本地模式需要终端中可用的 DSH CLI（`dsh --version`）或 npx（`npx --version`）
 - 远程模式需要 PATH 中可用的 OpenSSH Client（`ssh -V`），且远端机器已启动 DSH Web
 
 本地环境检测和启动遵循以下边界：
