@@ -2,19 +2,10 @@ import { join } from "node:path";
 import { assert, assertEquals, assertFalse, assertStringIncludes } from "@std/assert";
 import {
   isCommandNotFoundError,
-  isWindowsCommandNotFoundExit,
   readProcessOutputTail,
   runHiddenCommand,
   spawnHiddenProcess,
 } from "../src/hidden_process.ts";
-
-Deno.test("isWindowsCommandNotFoundExit recognizes cmd.exe missing-shim exits", () => {
-  assert(isWindowsCommandNotFoundExit("windows", "dsh.cmd", 0x2331));
-  assert(isWindowsCommandNotFoundExit("windows", "npx.cmd", 9009));
-  assertFalse(isWindowsCommandNotFoundExit("windows", "dsh.cmd", 1));
-  assertFalse(isWindowsCommandNotFoundExit("windows", "node", 9009));
-  assertFalse(isWindowsCommandNotFoundExit("linux", "dsh.cmd", 9009));
-});
 
 Deno.test("spawnHiddenProcess redirects output to a dedicated file", async () => {
   const directory = await Deno.makeTempDir();

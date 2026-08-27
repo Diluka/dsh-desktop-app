@@ -145,6 +145,23 @@ Deno.test("probeLocalDshEnvironment keeps native Windows command resolution", as
   });
 });
 
+Deno.test("probeLocalDshEnvironment treats a failing fallback dsh probe as missing", async () => {
+  const environment = await probeLocalDshEnvironment(
+    (command) =>
+      command === "dsh.cmd"
+        ? Promise.resolve(versionOutput("", false))
+        : Promise.resolve(versionOutput("11.6.2")),
+    "windows",
+    NO_PATH_RESOLUTION,
+  );
+
+  assertEquals(environment.launcher, {
+    kind: "npx",
+    command: "npx.cmd",
+    prefix: ["-y", "@deepseek-ai/dsh"],
+  });
+});
+
 Deno.test("probeLocalDshEnvironment falls back to resolved Windows npx when dsh is absent", async () => {
   const calls: string[] = [];
   const nodePath = "C:\\Program Files\\nodejs\\node.exe";

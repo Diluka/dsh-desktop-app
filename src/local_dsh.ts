@@ -157,9 +157,9 @@ async function probeWindowsEnvironment(
       probeResolvedWindowsTool(npxName, resolved, probe),
     ])
     : await Promise.all([
-      Promise.resolve<LocalToolProbeResult>({ missing: true }),
-      probeLocalTool(dshName, probe),
-      probeLocalTool(npxName, probe),
+      probeWindowsToolUnconfirmed(nodeName, probe),
+      probeWindowsToolUnconfirmed(dshName, probe),
+      probeWindowsToolUnconfirmed(npxName, probe),
     ]);
   const node = nodeProbe.info;
   const dsh = dshProbe.info;
@@ -179,6 +179,18 @@ async function probeResolvedWindowsTool(
 ): Promise<LocalToolProbeResult> {
   const commandPath = resolved[command];
   return commandPath ? await probeLocalTool(commandPath, probe) : { missing: true };
+}
+
+// Fallback used when where.exe resolution returns nothing: cmd.exe reports a
+// missing command with exit code 1 (not 9009), so a failing --version probe
+// cannot be told apart from a missing shim. Any non-successful probe therefore
+// counts as missing.
+async function probeWindowsToolUnconfirmed(
+  command: string,
+  probe: (command: string, args: string[]) => Promise<CommandProbeOutput>,
+): Promise<LocalToolProbeResult> {
+  const result = await probeLocalTool(command, probe);
+  return result.info ? result : { missing: true };
 }
 
 async function probeLocalTool(
