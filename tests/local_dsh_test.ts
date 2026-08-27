@@ -21,6 +21,8 @@ const NPX_LAUNCHER = {
   prefix: ["-y", "@deepseek-ai/dsh"],
 } as const satisfies LocalDshLauncher;
 
+const NO_SHELL_RESOLUTION = () => Promise.resolve(undefined);
+
 Deno.test("buildDshWebArguments starts loopback web without opening a browser", () => {
   assertEquals(buildDshWebArguments(45000), [
     "web",
@@ -34,10 +36,14 @@ Deno.test("buildDshWebArguments starts loopback web without opening a browser", 
 
 Deno.test("probeLocalDshLauncher prefers dsh", async () => {
   const commands: string[] = [];
-  const launcher = await probeLocalDshLauncher((command) => {
-    commands.push(command);
-    return Promise.resolve();
-  }, "linux");
+  const launcher = await probeLocalDshLauncher(
+    (command) => {
+      commands.push(command);
+      return Promise.resolve();
+    },
+    "linux",
+    NO_SHELL_RESOLUTION,
+  );
 
   assertEquals(commands, ["dsh"]);
   assertEquals(launcher, { kind: "dsh", command: "dsh", prefix: [] });
@@ -52,12 +58,16 @@ Deno.test("probeLocalDshLauncher preserves dsh on non-lookup errors", async () =
 
 Deno.test("probeLocalDshLauncher falls back to npx", async () => {
   const commands: string[] = [];
-  const launcher = await probeLocalDshLauncher((command) => {
-    commands.push(command);
-    return command === "dsh"
-      ? Promise.reject(new Deno.errors.NotFound("missing dsh"))
-      : Promise.resolve();
-  }, "linux");
+  const launcher = await probeLocalDshLauncher(
+    (command) => {
+      commands.push(command);
+      return command === "dsh"
+        ? Promise.reject(new Deno.errors.NotFound("missing dsh"))
+        : Promise.resolve();
+    },
+    "linux",
+    NO_SHELL_RESOLUTION,
+  );
 
   assertEquals(commands, ["dsh", "npx"]);
   assertEquals(launcher, {
@@ -67,17 +77,43 @@ Deno.test("probeLocalDshLauncher falls back to npx", async () => {
   });
 });
 
+Deno.test("probeLocalDshLauncher uses the login shell command path", async () => {
+  const shellNpx = "/Users/alice/tools/node/bin/npx";
+  const directCommands: string[] = [];
+  const shellCommands: string[] = [];
+  const launcher = await probeLocalDshLauncher(
+    (command) => {
+      directCommands.push(command);
+      return Promise.reject(new Deno.errors.NotFound(`missing ${command}`));
+    },
+    "darwin",
+    (command) => {
+      shellCommands.push(command);
+      return Promise.resolve(command === "npx" ? shellNpx : undefined);
+    },
+  );
+
+  assertEquals(directCommands, ["dsh", "npx"]);
+  assertEquals(shellCommands, ["dsh", "npx"]);
+  assertEquals(launcher, {
+    kind: "npx",
+    command: shellNpx,
+    prefix: ["-y", "@deepseek-ai/dsh"],
+  });
+});
+
 Deno.test("probeLocalDshLauncher reports no usable launcher", async () => {
   const launcher = await probeLocalDshLauncher(
     (command) => Promise.reject(new Deno.errors.NotFound(`missing ${command}`)),
     "linux",
+    NO_SHELL_RESOLUTION,
   );
   const error = localDshInstallError();
 
   assertEquals(launcher, undefined);
   assertEquals(error.code, "DSH_NOT_FOUND");
   assertMatch(error.message, /dsh.*npx/u);
-  assert(error.message.includes("PATH"));
+  assertMatch(error.message, /安装 DSH CLI.*npx/u);
 });
 
 Deno.test("startLocalDshWeb starts a resolved dsh launcher", async () => {

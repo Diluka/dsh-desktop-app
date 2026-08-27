@@ -43,6 +43,19 @@ Deno.test("spawnHiddenProcess runs Windows cmd shims through ComSpec", async () 
   assertStringIncludes(probe.stdout, "cmd output");
 });
 
+Deno.test("runHiddenCommand enforces an optional timeout", async () => {
+  const started = performance.now();
+  const output = await runHiddenCommand(
+    Deno.execPath(),
+    ["eval", "setInterval(() => {}, 1_000)"],
+    50,
+  );
+
+  assertFalse(output.success);
+  assertEquals(output.signal, "SIGKILL");
+  assert(performance.now() - started < 5_000);
+});
+
 Deno.test("readProcessOutputTail starts at a complete UTF-8 character", async () => {
   const filePath = await Deno.makeTempFile();
   const suffix = "\nPermission denied";

@@ -106,6 +106,7 @@ export async function readProcessOutputTail(filePath: string): Promise<string> {
 export async function runHiddenCommand(
   command: string,
   args: string[],
+  timeoutMilliseconds?: number,
 ): Promise<HiddenCommandOutput> {
   const launch = resolveProcessLaunch(command, args);
   const child = spawn(launch.command, launch.args, {
@@ -124,9 +125,23 @@ export async function runHiddenCommand(
   });
 
   return await new Promise<HiddenCommandOutput>((resolve, reject) => {
-    child.once("error", reject);
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const finish = (output: HiddenCommandOutput) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      resolve(output);
+    };
+
+    child.once("error", (error) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      reject(error);
+    });
     child.once("close", (code, signal) => {
-      resolve({
+      finish({
         success: code === 0,
         code: code ?? 1,
         signal,
@@ -134,6 +149,18 @@ export async function runHiddenCommand(
         stderr,
       });
     });
+    if (!settled && timeoutMilliseconds && timeoutMilliseconds > 0) {
+      timeout = setTimeout(() => {
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // The command may have exited between the timer firing and kill.
+        }
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+        finish({ success: false, code: 1, signal: "SIGKILL", stdout, stderr });
+      }, timeoutMilliseconds);
+    }
   });
 }
 

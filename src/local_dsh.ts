@@ -8,6 +8,7 @@ import {
 import { allocateLoopbackPort, probeHttp } from "./loopback_http.ts";
 
 const MAX_LOCAL_PORT_ATTEMPTS = 3;
+const COMMAND_PROBE_TIMEOUT_MS = 5_000;
 const NPX_DSH_PACKAGE = "@deepseek-ai/dsh";
 
 export type LocalDshErrorCode =
@@ -98,23 +99,56 @@ export function buildDshWebArguments(port: number): string[] {
 }
 
 export async function probeLocalDshLauncher(
-  probe: (command: string, args: string[]) => Promise<unknown> = runHiddenCommand,
+  probe: (command: string, args: string[]) => Promise<unknown> = (command, args) =>
+    runHiddenCommand(command, args, COMMAND_PROBE_TIMEOUT_MS),
   os: typeof Deno.build.os = Deno.build.os,
+  resolveFromShell: (command: string) => Promise<string | undefined> = (command) =>
+    resolveFromLoginShell(command, os),
 ): Promise<LocalDshLauncher | undefined> {
   const extension = os === "windows" ? ".cmd" : "";
-  const candidates: LocalDshLauncher[] = [
+  const launchers: LocalDshLauncher[] = [
     { kind: "dsh", command: `dsh${extension}`, prefix: [] },
     { kind: "npx", command: `npx${extension}`, prefix: ["-y", NPX_DSH_PACKAGE] },
   ];
-  for (const launcher of candidates) {
+
+  for (const launcher of launchers) {
     try {
       await probe(launcher.command, ["--version"]);
       return launcher;
     } catch (error) {
       if (!isCommandNotFoundError(error)) return launcher;
     }
+
+    const resolved = await resolveFromShell(launcher.command).catch(() => undefined);
+    if (resolved) return { ...launcher, command: resolved };
   }
   return undefined;
+}
+
+async function resolveFromLoginShell(
+  command: string,
+  os: typeof Deno.build.os,
+): Promise<string | undefined> {
+  if (os === "windows" || !/^[a-z0-9._-]+$/iu.test(command)) return undefined;
+  const shell = Deno.env.get("SHELL") ?? (os === "darwin" ? "/bin/zsh" : "/bin/sh");
+
+  try {
+    const marker = "__DSH_DESKTOP_COMMAND__=";
+    const script = `command -v ${command} | sed 's#^#${marker}#'`;
+    const result = await runHiddenCommand(shell, [
+      "-lic",
+      script,
+    ], COMMAND_PROBE_TIMEOUT_MS);
+    if (!result.success) return undefined;
+    const resolved = result.stdout
+      .split(/\r?\n/u)
+      .map((line) => line.trim())
+      .findLast((line) => line.startsWith(marker))
+      ?.slice(marker.length);
+    return resolved?.startsWith("/") ? resolved : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function startLocalDshWeb(
@@ -274,7 +308,7 @@ function cancelledError(): LocalDshError {
 export function localDshInstallError(): LocalDshError {
   return new LocalDshError(
     "DSH_NOT_FOUND",
-    "无法通过 dsh 或 npx 启动 DSH，请安装 DSH CLI 并确认 dsh 可从 PATH 启动。",
+    "无法通过 dsh 或 npx 启动 DSH，请安装 DSH CLI，或确认终端中的 npx 可用。",
   );
 }
 

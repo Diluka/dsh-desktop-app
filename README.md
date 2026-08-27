@@ -30,11 +30,12 @@ Windows 同时提供内置 Chromium（CEF）与系统 WebView2 两种版本；Li
 
 - [Deno 2.9+](https://docs.deno.com/runtime/desktop/)
 - Windows 10/11、现代 x86_64 Linux，或 Intel/Apple Silicon macOS
-- 本地模式需要 PATH 中可用的 DSH CLI（`dsh --version`），或可运行 npx 的 Node.js/npm
+- 本地模式需要终端中可用的 DSH CLI（`dsh --version`），或可运行 npx 的 Node.js/npm
 - 远程模式需要 PATH 中可用的 OpenSSH Client（`ssh -V`），且远端机器已启动 DSH Web
 
-未找到 `dsh` 时，应用自动执行 `npx -y @deepseek-ai/dsh`。首次下载在部分网络或机器上可能超过 30
-分钟，本地启动不设置超时；可在等待弹窗中点击“终止启动”。
+未找到 `dsh` 时，应用自动执行 `npx -y @deepseek-ai/dsh`。macOS/Linux 桌面启动时还会通过用户登录
+shell 解析命令路径，兼容由 shell profile 提供 PATH 的 Node 版本管理器。首次下载耗时可能超过 30
+分钟；本地启动不设置超时，可在等待弹窗中点击“终止启动”。
 
 Windows 缺少 `ssh` 时，可在“设置 → 系统 → 可选功能”中安装 **OpenSSH 客户端**。Debian/Ubuntu 可执行：
 
