@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { closeSync, openSync } from "node:fs";
 import { join } from "node:path";
 
@@ -33,6 +33,23 @@ function resolveProcessLaunch(
       args: ["/d", "/s", "/c", command, ...args],
     }
     : { command, args };
+}
+
+function killManagedProcess(child: ChildProcess, signal: Deno.Signal): void {
+  // On Windows a .cmd shim is executed through cmd.exe, so the spawned child is
+  // a shell and child.kill only terminates that shell, leaving its descendants
+  // (e.g. the node process running `dsh web`) running. Terminate the whole tree
+  // with taskkill /t so no child process is left behind after the window closes.
+  if (Deno.build.os === "windows" && child.pid && child.exitCode === null) {
+    const killer = spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
+      windowsHide: WINDOWS_HIDE_PROCESS,
+      stdio: "ignore",
+    });
+    killer.once("error", () => child.kill(signal as NodeJS.Signals));
+    killer.unref();
+    return;
+  }
+  child.kill(signal as NodeJS.Signals);
 }
 
 export function spawnHiddenProcess(
@@ -73,7 +90,7 @@ export function spawnHiddenProcess(
     outputFile,
     status,
     kill(signal = "SIGTERM") {
-      child.kill(signal as NodeJS.Signals);
+      killManagedProcess(child, signal);
     },
   };
 }

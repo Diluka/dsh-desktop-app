@@ -77,3 +77,60 @@ Deno.test("spawnHiddenProcess reports command lookup failures without parsing ou
   assertEquals(status.code, 127);
   assert(isCommandNotFoundError(status.error));
 });
+
+Deno.test("spawnHiddenProcess kill stops a running child", async () => {
+  const directory = await Deno.makeTempDir();
+  const child = spawnHiddenProcess(
+    Deno.execPath(),
+    ["eval", "setInterval(() => {}, 1_000)"],
+    directory,
+  );
+
+  child.kill("SIGTERM");
+
+  assertEquals((await child.status).success, false);
+});
+
+Deno.test("spawnHiddenProcess kill terminates the process tree on Windows", async () => {
+  if (Deno.build.os !== "windows") return;
+  const directory = await Deno.makeTempDir();
+  const pidFile = join(directory, "child.pid");
+  // A .cmd shim runs node synchronously, so the spawned child is cmd.exe and the
+  // node process is a grandchild that must not survive kill.
+  const script = join(directory, "long-running.cmd");
+  const jsPath = pidFile.replaceAll("\\", "/");
+  await Deno.writeTextFile(
+    script,
+    [
+      "@echo off",
+      `node -e "require('node:fs').writeFileSync('${jsPath}', String(process.pid)); setInterval(() => {}, 1000)"`,
+    ].join("\r\n"),
+  );
+
+  const child = spawnHiddenProcess(script, [], directory);
+  let nodePid = 0;
+  for (let i = 0; i < 200 && nodePid === 0; i++) {
+    try {
+      nodePid = Number((await Deno.readTextFile(pidFile)).trim());
+    } catch {
+      // The node child has not written its PID yet.
+    }
+    if (nodePid === 0) await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert(nodePid > 0, "the node child did not start");
+
+  child.kill("SIGTERM");
+  assertEquals((await child.status).success, false);
+
+  let alive = await processExists(nodePid);
+  for (let i = 0; i < 40 && alive; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    alive = await processExists(nodePid);
+  }
+  assertFalse(alive, "the grandchild node process is still running");
+});
+
+async function processExists(pid: number): Promise<boolean> {
+  const output = await runHiddenCommand("tasklist", ["/fi", `PID eq ${pid}`, "/nh"]);
+  return output.stdout.includes(String(pid));
+}

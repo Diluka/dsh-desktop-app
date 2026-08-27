@@ -192,10 +192,12 @@ fallback。
 5. 确认此时才开始 npx 下载；等待弹窗提示首次下载可能超过 30 分钟、不自动超时，并显示“终止启动”按钮。
 6. 在 npx 仍运行时点击“终止启动”，确认弹窗关闭、页面提示已终止，且不残留 `npx`/DSH 子进程。
 7. 再次启动并允许 npx 完成，确认同一窗口加载 DSH Web。
-8. 同时隐藏 `dsh` 和 npx，确认启动按钮保持禁用并显示缺失环境。
+8. 关闭窗口，确认本地 `dsh`/`node` 子进程同时退出（Windows 上尤其检查 `node.exe` 未残留）。
+9. 同时隐藏 `dsh` 和 npx，确认启动按钮保持禁用并显示缺失环境。
 
-预期 JSONL 包含 `local_dsh.npx_fallback`，成功或失败事件包含 `childOutputFile`。npx
-原始下载输出不会复制到 JSONL，仅写入对应的 `.child.log`。
+预期 JSONL 包含 `local_dsh.npx_fallback`，成功或失败事件包含 `childOutputFile`，关闭时包含
+`local_dsh.exited` 且 `stopRequested` 为 `true`。npx 原始下载输出不会复制到 JSONL，仅写入对应的
+`.child.log`。
 
 ## 回报模板
 
