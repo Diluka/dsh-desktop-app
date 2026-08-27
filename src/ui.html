@@ -977,19 +977,12 @@
     (function () {
       "use strict";
 
-      var storedMode = "remote";
-      var lastProfileId = null;
-      try {
-        var savedMode = localStorage.getItem("dsh-desktop-mode");
-        if (savedMode === "remote" || savedMode === "local") storedMode = savedMode;
-        lastProfileId = localStorage.getItem("dsh-desktop-last-profile");
-      } catch (_) {}
       var state = {
         profiles: [],
         ssh: { available: false },
         localEnvironment: { canStart: false },
         editingId: null,
-        mode: storedMode,
+        mode: "remote",
         ready: false,
       };
       var modeButtons = Array.from(document.querySelectorAll(".mode-option"));
@@ -1053,7 +1046,6 @@
         document.documentElement.dataset.themePreference = preference;
         document.documentElement.toggleAttribute("data-ds-dark-theme", dark);
         document.documentElement.style.colorScheme = dark ? "dark" : "light";
-        document.body.toggleAttribute("data-ds-dark-theme", dark);
         themeButtons.forEach(function (button) {
           button.setAttribute("aria-pressed", String(button.dataset.themePreference === preference));
         });
@@ -1076,10 +1068,10 @@
         diagnosticNote.textContent = local
           ? "本地模式优先使用 dsh；不可用时通过 npx 启动。"
           : "认证使用 .ssh/config、密钥或 ssh-agent；应用不处理密码。";
-        if (persist) {
-          try {
-            localStorage.setItem("dsh-desktop-mode", state.mode);
-          } catch (_) {}
+        if (persist && state.ready) {
+          globalThis.bindings.setModePreference(state.mode).catch(function (error) {
+            showToast(errorMessage(error));
+          });
         }
         if (!state.ready) return;
         notice.hidden = true;
@@ -1110,9 +1102,11 @@
       }
 
       function applyBootstrapData(data) {
+        var firstBootstrap = !state.ready;
         state.profiles = data.profiles;
         state.ssh = data.ssh;
         state.localEnvironment = data.localEnvironment;
+        if (firstBootstrap) setMode(data.mode, false);
         state.ready = true;
         document.getElementById("add-server").disabled = false;
         var logButton = document.getElementById("open-log-directory");
@@ -1164,15 +1158,7 @@
           ? state.profiles.length + " 个远程入口"
           : "等待添加远程入口";
 
-        var orderedProfiles = state.profiles.slice();
-        var lastProfileIndex = orderedProfiles.findIndex(function (profile) {
-          return profile.id === lastProfileId;
-        });
-        if (lastProfileIndex > 0) {
-          orderedProfiles.unshift(orderedProfiles.splice(lastProfileIndex, 1)[0]);
-        }
-
-        orderedProfiles.forEach(function (profile) {
+        state.profiles.forEach(function (profile) {
           var card = document.createElement("article");
           card.className = "server-card";
 
@@ -1217,14 +1203,6 @@
         button.disabled = Boolean(disabled);
         button.addEventListener("click", handler);
         return button;
-      }
-
-      function setLastProfile(id) {
-        lastProfileId = id || null;
-        try {
-          if (lastProfileId) localStorage.setItem("dsh-desktop-last-profile", lastProfileId);
-          else localStorage.removeItem("dsh-desktop-last-profile");
-        } catch (_) {}
       }
 
       function openEditor(profile) {
@@ -1298,7 +1276,6 @@
           state.profiles = state.profiles.filter(function (item) {
             return item.id !== profile.id;
           });
-          if (lastProfileId === profile.id) setLastProfile(null);
           if (state.editingId === profile.id) closeEditor();
           renderProfiles();
           showToast("服务器配置已删除");
@@ -1308,7 +1285,9 @@
       }
 
       async function connectProfile(profile) {
-        setLastProfile(profile.id);
+        state.profiles = [profile].concat(state.profiles.filter(function (item) {
+          return item.id !== profile.id;
+        }));
         renderProfiles();
         showConnecting("正在连接", "正在连接 “" + profile.name + "”", [
           "读取本机 .ssh/config",

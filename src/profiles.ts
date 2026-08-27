@@ -3,6 +3,8 @@ import { dirname } from "node:path";
 export const DEFAULT_REMOTE_PORT = 3080;
 const CONFIG_VERSION = 1;
 
+export type ConnectionMode = "remote" | "local";
+
 export interface ServerProfile {
   readonly id: string;
   readonly name: string;
@@ -20,6 +22,8 @@ export interface ServerProfileInput {
 interface ProfileFile {
   readonly version: typeof CONFIG_VERSION;
   readonly profiles: readonly ServerProfile[];
+  readonly mode: ConnectionMode;
+  readonly lastProfileId?: string;
 }
 
 export interface OpenProfileStoreResult {
@@ -33,13 +37,19 @@ export class ProfileValidationError extends Error {
 
 export class ProfileStore {
   #profiles: ServerProfile[];
+  #mode: ConnectionMode;
+  #lastProfileId?: string;
 
   private constructor(
     readonly filePath: string,
     profiles: ServerProfile[],
+    mode: ConnectionMode,
+    lastProfileId: string | undefined,
     private readonly createId: () => string,
   ) {
     this.#profiles = profiles;
+    this.#mode = mode;
+    this.#lastProfileId = lastProfileId;
   }
 
   static async open(
@@ -51,12 +61,19 @@ export class ProfileStore {
 
     try {
       const raw = await Deno.readTextFile(filePath);
+      const parsed = parseProfileFile(raw);
       return {
-        store: new ProfileStore(filePath, parseProfileFile(raw), createId),
+        store: new ProfileStore(
+          filePath,
+          parsed.profiles,
+          parsed.mode,
+          parsed.lastProfileId,
+          createId,
+        ),
       };
     } catch (error) {
       if (error instanceof Deno.errors.NotFound) {
-        return { store: new ProfileStore(filePath, [], createId) };
+        return { store: new ProfileStore(filePath, [], "remote", undefined, createId) };
       }
       if (!(error instanceof SyntaxError || error instanceof ProfileValidationError)) {
         throw error;
@@ -66,19 +83,44 @@ export class ProfileStore {
       const recoveredBackup = `${filePath}.invalid-${stamp}`;
       await Deno.rename(filePath, recoveredBackup);
       return {
-        store: new ProfileStore(filePath, [], createId),
+        store: new ProfileStore(filePath, [], "remote", undefined, createId),
         recoveredBackup,
       };
     }
   }
 
   list(): ServerProfile[] {
-    return this.#profiles.map((profile) => ({ ...profile }));
+    const profiles = this.#profiles.map((profile) => ({ ...profile }));
+    const lastIndex = profiles.findIndex((profile) => profile.id === this.#lastProfileId);
+    if (lastIndex > 0) profiles.unshift(profiles.splice(lastIndex, 1)[0]);
+    return profiles;
+  }
+
+  connectionMode(): ConnectionMode {
+    return this.#mode;
   }
 
   get(id: string): ServerProfile | undefined {
     const profile = this.#profiles.find((candidate) => candidate.id === id);
     return profile ? { ...profile } : undefined;
+  }
+
+  async setConnectionMode(mode: unknown): Promise<void> {
+    if (mode !== "remote" && mode !== "local") {
+      throw new ProfileValidationError("连接模式无效");
+    }
+    if (this.#mode === mode) return;
+    this.#mode = mode;
+    await this.#persist();
+  }
+
+  async markUsed(id: string): Promise<void> {
+    if (!this.#profiles.some((profile) => profile.id === id)) {
+      throw new ProfileValidationError("服务器配置不存在或已被删除");
+    }
+    if (this.#lastProfileId === id) return;
+    this.#lastProfileId = id;
+    await this.#persist();
   }
 
   async save(input: ServerProfileInput): Promise<ServerProfile> {
@@ -110,6 +152,7 @@ export class ProfileStore {
     const next = this.#profiles.filter((profile) => profile.id !== id);
     if (next.length === this.#profiles.length) return false;
     this.#profiles = next;
+    if (this.#lastProfileId === id) this.#lastProfileId = undefined;
     await this.#persist();
     return true;
   }
@@ -119,12 +162,18 @@ export class ProfileStore {
     const data: ProfileFile = {
       version: CONFIG_VERSION,
       profiles: this.#profiles,
+      mode: this.#mode,
+      ...(this.#lastProfileId ? { lastProfileId: this.#lastProfileId } : {}),
     };
     await Deno.writeTextFile(this.filePath, `${JSON.stringify(data, null, 2)}\n`);
   }
 }
 
-function parseProfileFile(raw: string): ServerProfile[] {
+function parseProfileFile(raw: string): {
+  profiles: ServerProfile[];
+  mode: ConnectionMode;
+  lastProfileId?: string;
+} {
   const value: unknown = JSON.parse(raw);
   const record = asRecord(value);
   if (record.version !== CONFIG_VERSION || !Array.isArray(record.profiles)) {
@@ -132,7 +181,7 @@ function parseProfileFile(raw: string): ServerProfile[] {
   }
 
   const ids = new Set<string>();
-  return record.profiles.map((item) => {
+  const profiles = record.profiles.map((item) => {
     const profile = asRecord(item);
     if (typeof profile.id !== "string" || profile.id.length === 0 || ids.has(profile.id)) {
       throw new ProfileValidationError("服务器配置包含无效或重复的 ID");
@@ -146,6 +195,11 @@ function parseProfileFile(raw: string): ServerProfile[] {
       remotePort: validateStoredPort(profile.remotePort),
     };
   });
+  const mode = record.mode === "local" ? "local" : "remote";
+  const lastProfileId = typeof record.lastProfileId === "string" && ids.has(record.lastProfileId)
+    ? record.lastProfileId
+    : undefined;
+  return { profiles, mode, ...(lastProfileId ? { lastProfileId } : {}) };
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

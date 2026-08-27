@@ -51,10 +51,9 @@ Deno.test("shell switches between separate remote and local mode panels", () => 
   assertMatch(SHELL_HTML, /id="local-mode-panel"[^>]+hidden/u);
   assertMatch(SHELL_HTML, /<h2 id="remote-mode-title">选择服务器<\/h2>/u);
   assertMatch(SHELL_HTML, /<h2 id="local-mode-title">本地模式<\/h2>/u);
-  assertMatch(SHELL_HTML, /function setMode\(mode, persist\)/u);
-  assertMatch(SHELL_HTML, /localStorage\.getItem\("dsh-desktop-mode"\)/u);
-  assertMatch(SHELL_HTML, /localStorage\.setItem\("dsh-desktop-mode", state\.mode\)/u);
-  assertMatch(SHELL_HTML, /setMode\(state\.mode, false\)/u);
+  assertMatch(SHELL_HTML, /bindings\.setModePreference\(state\.mode\)/u);
+  assertMatch(SHELL_HTML, /setMode\(data\.mode, false\)/u);
+  assertFalse(/dsh-desktop-(?:mode|last-profile)/u.test(SHELL_HTML));
   for (
     const id of [
       "local-platform",
@@ -68,21 +67,6 @@ Deno.test("shell switches between separate remote and local mode panels", () => 
   assertMatch(SHELL_HTML, /state\.localEnvironment\.launcher === "npx"/u);
   assertMatch(SHELL_HTML, /npx -y @deepseek-ai\/dsh web --host 127\.0\.0\.1/u);
   assertMatch(SHELL_HTML, /dsh web --host 127\.0\.0\.1/u);
-});
-
-Deno.test("shell keeps the last connected remote profile first", () => {
-  assertMatch(SHELL_HTML, /localStorage\.getItem\("dsh-desktop-last-profile"\)/u);
-  assertMatch(
-    SHELL_HTML,
-    /localStorage\.setItem\("dsh-desktop-last-profile", lastProfileId\)/u,
-  );
-  assertMatch(SHELL_HTML, /orderedProfiles\.findIndex/u);
-  assertMatch(SHELL_HTML, /orderedProfiles\.unshift\(orderedProfiles\.splice/u);
-  assertMatch(
-    SHELL_HTML,
-    /async function connectProfile\(profile\) \{\s*setLastProfile\(profile\.id\)/u,
-  );
-  assertMatch(SHELL_HTML, /if \(lastProfileId === profile\.id\) setLastProfile\(null\)/u);
 });
 
 Deno.test("shell renders Unicode delete confirmation in-page", () => {

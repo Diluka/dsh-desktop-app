@@ -1,5 +1,4 @@
 import { resolveAppPaths } from "./src/app_paths.ts";
-import { detectSystemLocale } from "./src/browser_locale.ts";
 import { readProcessOutputTail, spawnHiddenProcess } from "./src/hidden_process.ts";
 import {
   LocalDshError,
@@ -20,6 +19,14 @@ export type DesktopBackend = "cef" | "webview";
 interface ShellServer {
   readonly addr: Deno.NetAddr;
   shutdown(): Promise<void>;
+}
+
+function detectSystemLocale(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().locale;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function startDesktop(backend: DesktopBackend): Promise<void> {
@@ -142,6 +149,7 @@ async function startDesktopWithShellServer(
       const { ssh, localDshEnvironment, localDshLauncher } = await environmentReady;
       return {
         profiles: store.list(),
+        mode: store.connectionMode(),
         ssh,
         localEnvironment: {
           platform: `${Deno.build.os} ${Deno.build.arch}`,
@@ -184,6 +192,10 @@ async function startDesktopWithShellServer(
       }
       return deleted;
     });
+    window.bind("setModePreference", async (mode: unknown) => {
+      await store.setConnectionMode(mode);
+      return null;
+    });
     window.bind("openLogDirectory", async () => {
       try {
         await openDirectory(paths.logDirectory);
@@ -223,6 +235,7 @@ async function startDesktopWithShellServer(
     window.unbind("bootstrap");
     window.unbind("saveProfile");
     window.unbind("deleteProfile");
+    window.unbind("setModePreference");
     window.unbind("openLogDirectory");
     window.unbind("connectProfile");
     window.unbind("connectLocal");
@@ -238,6 +251,14 @@ async function startDesktopWithShellServer(
 
     const profile = store.get(id);
     if (!profile) throw new Error("服务器配置不存在或已被删除");
+    try {
+      await store.markUsed(id);
+    } catch (error) {
+      logger.warn(
+        { event: "profiles.last_used_failed", profileId: id, err: error },
+        "Could not persist the last used server profile",
+      );
+    }
     connecting = true;
     try {
       if (activeLocal) {
