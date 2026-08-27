@@ -266,6 +266,15 @@
       color: var(--text-secondary);
       font-weight: 500;
     }
+    .runtime-log-button {
+      width: 100%;
+      padding: 4px 0;
+      border: 0;
+      background: transparent;
+    }
+    .runtime-log-button:hover:not(:disabled) strong {
+      color: var(--text);
+    }
 
     .workspace {
       min-width: 0;
@@ -479,8 +488,7 @@
       font-size: 12px;
       line-height: 18px;
     }
-    .server-meta code,
-    .log-path {
+    .server-meta code {
       font-family: "SF Mono", "JetBrains Mono", "Fira Code", Consolas, monospace;
       overflow-wrap: anywhere;
     }
@@ -614,18 +622,6 @@
       font-size: 11px;
       line-height: 18px;
     }
-    .diagnostics-row {
-      display: flex;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 2px 6px;
-    }
-    .diagnostics .text-button {
-      padding: 2px 6px;
-      font-size: 11px;
-      line-height: 18px;
-    }
-
     .toast {
       position: fixed;
       z-index: 20;
@@ -825,6 +821,10 @@
               class="runtime-row"><span>浏览器</span><strong id="browser-backend">Chromium / CEF</strong></div>
             <div
               class="runtime-row"><span>连接</span><strong id="connection-backend">OpenSSH</strong></div>
+            <button id="open-log-directory" class="runtime-row runtime-log-button" type="button"
+              title="日志目录正在初始化..." aria-label="打开日志目录" disabled>
+              <span>日志</span><strong>打开日志目录</strong>
+            </button>
           </div>
         </div>
       </aside>
@@ -933,11 +933,6 @@
           </section>
 
           <footer class="diagnostics">
-            <div class="diagnostics-row">
-              <span>日志目录：<code id="log-directory" class="log-path">正在初始化...</code></span>
-              <button id="open-log-directory" class="text-button" type="button"
-                disabled>打开目录</button>
-            </div>
             <div
               id="diagnostic-note">认证使用 <code>.ssh/config</code>、密钥或 <code>ssh-agent</code>；应用不处理密码。</div>
           </footer>
@@ -983,9 +978,11 @@
       "use strict";
 
       var storedMode = "remote";
+      var lastProfileId = null;
       try {
         var savedMode = localStorage.getItem("dsh-desktop-mode");
         if (savedMode === "remote" || savedMode === "local") storedMode = savedMode;
+        lastProfileId = localStorage.getItem("dsh-desktop-last-profile");
       } catch (_) {}
       var state = {
         profiles: [],
@@ -1118,8 +1115,10 @@
         state.localEnvironment = data.localEnvironment;
         state.ready = true;
         document.getElementById("add-server").disabled = false;
-        document.getElementById("open-log-directory").disabled = false;
-        document.getElementById("log-directory").textContent = data.logDirectory;
+        var logButton = document.getElementById("open-log-directory");
+        logButton.disabled = false;
+        logButton.title = data.logDirectory;
+        logButton.setAttribute("aria-label", "打开日志目录：" + data.logDirectory);
         document.getElementById("browser-backend").textContent = data.browserBackend;
         renderSshStatus();
         renderLocalEnvironment();
@@ -1165,7 +1164,15 @@
           ? state.profiles.length + " 个远程入口"
           : "等待添加远程入口";
 
-        state.profiles.forEach(function (profile) {
+        var orderedProfiles = state.profiles.slice();
+        var lastProfileIndex = orderedProfiles.findIndex(function (profile) {
+          return profile.id === lastProfileId;
+        });
+        if (lastProfileIndex > 0) {
+          orderedProfiles.unshift(orderedProfiles.splice(lastProfileIndex, 1)[0]);
+        }
+
+        orderedProfiles.forEach(function (profile) {
           var card = document.createElement("article");
           card.className = "server-card";
 
@@ -1210,6 +1217,14 @@
         button.disabled = Boolean(disabled);
         button.addEventListener("click", handler);
         return button;
+      }
+
+      function setLastProfile(id) {
+        lastProfileId = id || null;
+        try {
+          if (lastProfileId) localStorage.setItem("dsh-desktop-last-profile", lastProfileId);
+          else localStorage.removeItem("dsh-desktop-last-profile");
+        } catch (_) {}
       }
 
       function openEditor(profile) {
@@ -1283,6 +1298,7 @@
           state.profiles = state.profiles.filter(function (item) {
             return item.id !== profile.id;
           });
+          if (lastProfileId === profile.id) setLastProfile(null);
           if (state.editingId === profile.id) closeEditor();
           renderProfiles();
           showToast("服务器配置已删除");
@@ -1292,6 +1308,8 @@
       }
 
       async function connectProfile(profile) {
+        setLastProfile(profile.id);
+        renderProfiles();
         showConnecting("正在连接", "正在连接 “" + profile.name + "”", [
           "读取本机 .ssh/config",
           "建立回环端口转发",

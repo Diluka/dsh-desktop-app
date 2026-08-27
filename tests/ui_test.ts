@@ -37,7 +37,10 @@ Deno.test("shell waits for backend bindings before enabling actions", () => {
     /getElementById\("start-local"\)\.disabled = !environment\.canStart/u,
   );
   assertMatch(SHELL_HTML, /getElementById\("add-server"\)\.disabled = false/u);
-  assertMatch(SHELL_HTML, /getElementById\("open-log-directory"\)\.disabled = false/u);
+  assertMatch(SHELL_HTML, /logButton\.disabled = false/u);
+  assertMatch(SHELL_HTML, /logButton\.title = data\.logDirectory/u);
+  assertMatch(SHELL_HTML, /<div class="runtime-note">[\s\S]*id="open-log-directory"/u);
+  assertFalse(/id="log-directory"/u.test(SHELL_HTML));
 });
 
 Deno.test("shell switches between separate remote and local mode panels", () => {
@@ -65,6 +68,21 @@ Deno.test("shell switches between separate remote and local mode panels", () => 
   assertMatch(SHELL_HTML, /state\.localEnvironment\.launcher === "npx"/u);
   assertMatch(SHELL_HTML, /npx -y @deepseek-ai\/dsh web --host 127\.0\.0\.1/u);
   assertMatch(SHELL_HTML, /dsh web --host 127\.0\.0\.1/u);
+});
+
+Deno.test("shell keeps the last connected remote profile first", () => {
+  assertMatch(SHELL_HTML, /localStorage\.getItem\("dsh-desktop-last-profile"\)/u);
+  assertMatch(
+    SHELL_HTML,
+    /localStorage\.setItem\("dsh-desktop-last-profile", lastProfileId\)/u,
+  );
+  assertMatch(SHELL_HTML, /orderedProfiles\.findIndex/u);
+  assertMatch(SHELL_HTML, /orderedProfiles\.unshift\(orderedProfiles\.splice/u);
+  assertMatch(
+    SHELL_HTML,
+    /async function connectProfile\(profile\) \{\s*setLastProfile\(profile\.id\)/u,
+  );
+  assertMatch(SHELL_HTML, /if \(lastProfileId === profile\.id\) setLastProfile\(null\)/u);
 });
 
 Deno.test("shell renders Unicode delete confirmation in-page", () => {
