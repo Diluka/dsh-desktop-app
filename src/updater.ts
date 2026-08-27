@@ -2,6 +2,7 @@ export const UPDATE_REPOSITORY = "Diluka/dsh-desktop-app";
 export const UPDATE_RELEASE_URL = `https://github.com/${UPDATE_REPOSITORY}/releases/tag/latest`;
 const RELEASE_API_URL = `https://api.github.com/repos/${UPDATE_REPOSITORY}/releases/tags/latest`;
 const SHA_PATTERN = /^[0-9a-f]{40}$/iu;
+const REQUEST_TIMEOUT_MS = 10_000;
 
 type ReleasePayload = {
   readonly target_commitish?: unknown;
@@ -34,9 +35,18 @@ export async function checkForUpdate(
 }
 
 async function fetchRelease(fetcher: UpdateFetcher): Promise<ReleasePayload> {
-  const response = await fetcher(RELEASE_API_URL, {
-    headers: { accept: "application/vnd.github+json" },
-  });
+  let response: Response;
+  try {
+    response = await fetcher(RELEASE_API_URL, {
+      headers: { accept: "application/vnd.github+json" },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "TimeoutError") {
+      throw new Error("请求超时，请稍后重试");
+    }
+    throw error;
+  }
   if (!response.ok) throw new Error(`无法检查更新：GitHub 返回 HTTP ${response.status}`);
   return await response.json() as ReleasePayload;
 }

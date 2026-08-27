@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assert, assertEquals, assertFalse, assertRejects } from "@std/assert";
 import { checkForUpdate, UPDATE_RELEASE_URL } from "../src/updater.ts";
 
 const CURRENT = "1111111111111111111111111111111111111111";
@@ -35,6 +35,16 @@ Deno.test("checkForUpdate rejects malformed release commit metadata", async () =
     Error,
     "commit id",
   );
+});
+
+Deno.test("checkForUpdate passes a timed abort signal to the fetcher", async () => {
+  let receivedInit: RequestInit | undefined;
+  await checkForUpdate(CURRENT, (_input, init) => {
+    receivedInit = init;
+    return Promise.resolve(Response.json({ target_commitish: CURRENT }));
+  });
+  assert(receivedInit?.signal instanceof AbortSignal);
+  assertFalse(receivedInit.signal.aborted);
 });
 
 function releaseFetcher(commit: string) {

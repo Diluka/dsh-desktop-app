@@ -1,2 +1,2 @@
-// CI replaces this value with the commit that produced each release artifact.
+// Generated before packaging. Do not edit manually.
 export const BUILD_COMMIT: string = "development";

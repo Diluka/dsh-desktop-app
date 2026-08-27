@@ -9,7 +9,7 @@
   },
   "tasks": {
     "dev": "deno desktop --hmr --permission-set=app main.ts",
-    "prepare-build-info": "deno run --allow-read --allow-write --allow-run --allow-env scripts/write_build_info.ts",
+    "prepare-build-info": "deno run --allow-read --allow-write --allow-env scripts/write_build_info.ts",
     "fmt": "deno fmt",
     "lint": "deno lint",
     "typecheck": "deno check main.ts main_webview.ts scripts/build_windows.ts scripts/write_build_info.ts",
@@ -41,8 +41,7 @@
       "net": [
         "127.0.0.1",
         "[::1]",
-        "api.github.com",
-        "github.com"
+        "api.github.com"
       ]
     }
   },
