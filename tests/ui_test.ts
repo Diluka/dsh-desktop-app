@@ -40,6 +40,7 @@ Deno.test("shell waits for backend bindings before enabling actions", () => {
   assertMatch(SHELL_HTML, /logButton\.disabled = false/u);
   assertMatch(SHELL_HTML, /logButton\.title = data\.logDirectory/u);
   assertMatch(SHELL_HTML, /<div class="runtime-note">[\s\S]*id="open-log-directory"/u);
+  assertMatch(SHELL_HTML, /id="check-update"[\s\S]*id="update-status"/u);
   assertFalse(/id="log-directory"/u.test(SHELL_HTML));
 });
 
@@ -77,6 +78,11 @@ Deno.test("shell renders Unicode delete confirmation in-page", () => {
   );
   assertMatch(SHELL_HTML, /<form class="form-actions" method="dialog">/u);
   assertMatch(SHELL_HTML, /deleteConfirmationMessage\.textContent =/u);
+  assertMatch(
+    SHELL_HTML,
+    /<dialog id="update-confirmation"[^>]+aria-modal="true"[^>]*>/u,
+  );
+  assertMatch(SHELL_HTML, /function askAboutUpdate\(/u);
 });
 
 Deno.test("handleShellRequest serves safe shell responses without local tunnel internals", async () => {

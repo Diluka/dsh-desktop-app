@@ -1,4 +1,6 @@
+import { join } from "node:path";
 import { resolveAppPaths } from "./src/app_paths.ts";
+import { BUILD_COMMIT } from "./src/build_info.ts";
 import { readProcessOutputTail, spawnHiddenProcess } from "./src/hidden_process.ts";
 import {
   LocalDshError,
@@ -11,6 +13,12 @@ import { createLogger } from "./src/logger.ts";
 import { openDirectory } from "./src/open_directory.ts";
 import { ProfileStore, type ServerProfileInput } from "./src/profiles.ts";
 import { probeOpenSsh, SshTunnel, startSshTunnel, TunnelError } from "./src/ssh_tunnel.ts";
+import {
+  checkForUpdate,
+  currentExecutablePath,
+  downloadUpdate,
+  startUpdateApplier,
+} from "./src/updater.ts";
 import { handleShellRequest } from "./src/ui.ts";
 import { setWindowsWindowIcon } from "./src/windows_window_icon.ts";
 
@@ -37,12 +45,17 @@ async function startDesktopWithShellServer(
 ): Promise<void> {
   const shellUrl = resolveShellUrl(shellServer.addr);
   const paths = resolveAppPaths();
+  const updateDirectory = join(
+    paths.updateDirectory,
+    `${Deno.build.os}-${Deno.build.arch}-${backend}`,
+  );
   const logger = await createLogger(paths.logDirectory);
   const spawnChild = (command: string, args: string[]) =>
     spawnHiddenProcess(command, args, paths.logDirectory);
   logger.info({
     event: "app.start",
     version: Deno.version.deno,
+    buildCommit: BUILD_COMMIT,
     os: Deno.build.os,
     arch: Deno.build.arch,
     backend,
@@ -112,6 +125,8 @@ async function startDesktopWithShellServer(
   let localStartController: AbortController | undefined;
   let connecting = false;
   let shellBindingsActive = false;
+  let updateDownloading = false;
+  let downloadedUpdateAsset: string | undefined;
   let shuttingDown = false;
   let closeAllowed = false;
 
@@ -150,6 +165,8 @@ async function startDesktopWithShellServer(
           canStart: Boolean(localDshLauncher),
         },
         logDirectory: paths.logDirectory,
+        buildCommit: BUILD_COMMIT,
+        updatesSupported: BUILD_COMMIT !== "development" && Deno.build.os !== "linux",
         browserBackend: backend === "webview" ? "Microsoft Edge WebView2" : "Chromium / CEF",
         ...(startupNotice ? { startupNotice } : {}),
       };
@@ -203,6 +220,47 @@ async function startDesktopWithShellServer(
         throw new Error(`无法打开日志目录：${detail}`);
       }
     });
+    window.bind("checkForUpdate", async () => {
+      ensureUpdatesSupported();
+      try {
+        const update = await checkForUpdate(BUILD_COMMIT);
+        logger.info({ event: "update.checked", ...update }, "Checked for desktop updates");
+        return update;
+      } catch (error) {
+        logger.warn(
+          { event: "update.check_failed", err: error },
+          "Could not check for desktop updates",
+        );
+        throw updateError(error, "检查更新失败");
+      }
+    });
+    window.bind("downloadUpdate", async () => {
+      ensureUpdatesSupported();
+      if (updateDownloading) throw new Error("更新正在下载，请稍候");
+      updateDownloading = true;
+      try {
+        const update = await downloadUpdate(BUILD_COMMIT, {
+          paths: { updateDirectory },
+          backend,
+        });
+        downloadedUpdateAsset = update.available ? update.assetName : undefined;
+        logger.info({ event: "update.downloaded", ...update }, "Downloaded desktop update");
+        return update;
+      } catch (error) {
+        logger.warn(
+          { event: "update.download_failed", err: error },
+          "Could not download desktop update",
+        );
+        throw updateError(error, "下载更新失败");
+      } finally {
+        updateDownloading = false;
+      }
+    });
+    window.bind("restartToUpdate", async () => {
+      ensureUpdatesSupported();
+      await restartToUpdate();
+      return null;
+    });
     window.bind("connectProfile", async (id: unknown) => {
       await connectProfile(id);
       return null;
@@ -227,10 +285,36 @@ async function startDesktopWithShellServer(
     window.unbind("deleteProfile");
     window.unbind("setModePreference");
     window.unbind("openLogDirectory");
+    window.unbind("checkForUpdate");
+    window.unbind("downloadUpdate");
+    window.unbind("restartToUpdate");
     window.unbind("connectProfile");
     window.unbind("connectLocal");
     window.unbind("cancelLocalStart");
     shellBindingsActive = false;
+  }
+
+  function ensureUpdatesSupported(): void {
+    if (BUILD_COMMIT === "development") {
+      throw new Error("开发构建没有发布 commit id，无法检查更新");
+    }
+    if (Deno.build.os === "linux") {
+      throw new Error("当前 Linux 构建没有可自动安装的发布包");
+    }
+  }
+
+  async function restartToUpdate(): Promise<void> {
+    const assetName = downloadedUpdateAsset;
+    if (!assetName) throw new Error("请先下载更新包");
+    const executablePath = currentExecutablePath();
+    logger.info({ event: "update.restart_requested" }, "Restarting to apply desktop update");
+    startUpdateApplier({
+      executablePath,
+      updateDirectory,
+      assetName,
+      parentPid: Deno.pid,
+    });
+    await shutdown();
   }
 
   async function connectProfile(id: unknown): Promise<void> {
@@ -417,6 +501,11 @@ async function startDesktopWithShellServer(
 function lastOutputLine(detail?: string): string | undefined {
   const line = detail?.split(/\r?\n/u).at(-1)?.trim();
   return line ? line.slice(0, 500) : undefined;
+}
+
+function updateError(error: unknown, prefix: string): Error {
+  const detail = error instanceof Error ? error.message : String(error);
+  return new Error(`${prefix}：${detail}`);
 }
 
 function resolveShellUrl(address: Deno.NetAddr): string {

@@ -9,21 +9,22 @@
   },
   "tasks": {
     "dev": "deno desktop --hmr --permission-set=app main.ts",
+    "prepare-build-info": "deno run --allow-read --allow-write --allow-run --allow-env scripts/write_build_info.ts",
     "fmt": "deno fmt",
     "lint": "deno lint",
-    "typecheck": "deno check main.ts main_webview.ts scripts/build_windows.ts",
+    "typecheck": "deno check main.ts main_webview.ts scripts/build_windows.ts scripts/write_build_info.ts",
     "test": "deno test --permit-no-files --permission-set=app",
     "check": "deno fmt --check && deno lint && deno task typecheck && deno test --permit-no-files --permission-set=app",
-    "build:linux": "deno desktop --exclude-unused-npm --permission-set=app --target x86_64-unknown-linux-gnu --icon assets/icon.png --output dist/linux/DSH-Desktop main.ts",
+    "build:linux": "deno task prepare-build-info && deno desktop --exclude-unused-npm --permission-set=app --target x86_64-unknown-linux-gnu --icon assets/icon.png --output dist/linux/DSH-Desktop main.ts",
     "build:windows": "deno task build:windows:cef && deno task build:windows:webview",
-    "build:windows:cef": "deno run --permission-set=app scripts/build_windows.ts --backend=cef",
-    "build:windows:webview": "deno run --permission-set=app scripts/build_windows.ts --backend=webview",
-    "build:macos:aarch64": "deno desktop --exclude-unused-npm --permission-set=app --target aarch64-apple-darwin --icon assets/icon.icns --output dist/macos/aarch64/DSH-Desktop.app main.ts",
-    "build:macos:x86_64": "deno desktop --exclude-unused-npm --permission-set=app --target x86_64-apple-darwin --icon assets/icon.icns --output dist/macos/x86_64/DSH-Desktop.app main.ts",
+    "build:windows:cef": "deno task prepare-build-info && deno run --permission-set=app scripts/build_windows.ts --backend=cef",
+    "build:windows:webview": "deno task prepare-build-info && deno run --permission-set=app scripts/build_windows.ts --backend=webview",
+    "build:macos:aarch64": "deno task prepare-build-info && deno desktop --exclude-unused-npm --permission-set=app --target aarch64-apple-darwin --icon assets/icon.icns --output dist/macos/aarch64/DSH-Desktop.app main.ts",
+    "build:macos:x86_64": "deno task prepare-build-info && deno desktop --exclude-unused-npm --permission-set=app --target x86_64-apple-darwin --icon assets/icon.icns --output dist/macos/x86_64/DSH-Desktop.app main.ts",
     "package:linux": "deno desktop --exclude-unused-npm --permission-set=app --target x86_64-unknown-linux-gnu --icon assets/icon.png --output dist/linux/DSH-Desktop.AppImage main.ts",
     "package:windows": "deno task package:windows:cef && deno task package:windows:webview",
-    "package:windows:cef": "deno run --permission-set=app scripts/build_windows.ts --backend=cef --package",
-    "package:windows:webview": "deno run --permission-set=app scripts/build_windows.ts --backend=webview --package",
+    "package:windows:cef": "deno task prepare-build-info && deno run --permission-set=app scripts/build_windows.ts --backend=cef --package",
+    "package:windows:webview": "deno task prepare-build-info && deno run --permission-set=app scripts/build_windows.ts --backend=webview --package",
     "package:macos:aarch64": "deno task build:macos:aarch64 && tar -czf dist/macos/DSH-Desktop-macos-aarch64.tar.gz -C dist/macos/aarch64 DSH-Desktop.app",
     "package:macos:x86_64": "deno task build:macos:x86_64 && tar -czf dist/macos/DSH-Desktop-macos-x86_64.tar.gz -C dist/macos/x86_64 DSH-Desktop.app"
   },
@@ -39,7 +40,10 @@
       ],
       "net": [
         "127.0.0.1",
-        "[::1]"
+        "[::1]",
+        "api.github.com",
+        "github.com",
+        "release-assets.githubusercontent.com"
       ]
     }
   },

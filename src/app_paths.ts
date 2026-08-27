@@ -3,6 +3,7 @@ import { join } from "node:path";
 export interface AppPaths {
   readonly configFile: string;
   readonly logDirectory: string;
+  readonly updateDirectory: string;
 }
 
 export type EnvironmentReader = (name: string) => string | undefined;
@@ -37,5 +38,6 @@ export function resolveAppPaths(
     logDirectory: os === "darwin"
       ? join(stateRoot, "dsh-desktop")
       : join(stateRoot, "dsh-desktop", "logs"),
+    updateDirectory: join(stateRoot, "dsh-desktop", "updates"),
   };
 }
