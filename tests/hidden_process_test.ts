@@ -28,19 +28,19 @@ Deno.test("spawnHiddenProcess redirects output to a dedicated file", async () =>
   assertStringIncludes(await readProcessOutputTail(child.outputFile), "stderr line");
 });
 
-Deno.test("spawnHiddenProcess runs Windows cmd shims through ComSpec", async () => {
+Deno.test("spawnHiddenProcess runs Windows .ps1 shims through PowerShell", async () => {
   if (Deno.build.os !== "windows") return;
   const directory = await Deno.makeTempDir();
-  const script = join(directory, "fixture.cmd");
-  await Deno.writeTextFile(script, "@echo off\r\necho cmd output\r\n");
+  const script = join(directory, "fixture.ps1");
+  await Deno.writeTextFile(script, "Write-Output 'ps1 output'\n");
 
   const child = spawnHiddenProcess(script, [], directory);
 
   assertEquals(await child.status, { success: true, code: 0, signal: null });
-  assertStringIncludes(await Deno.readTextFile(child.outputFile), "cmd output");
+  assertStringIncludes(await Deno.readTextFile(child.outputFile), "ps1 output");
   const probe = await runHiddenCommand(script, []);
   assertEquals(probe.success, true);
-  assertStringIncludes(probe.stdout, "cmd output");
+  assertStringIncludes(probe.stdout, "ps1 output");
 });
 
 Deno.test("runHiddenCommand enforces an optional timeout", async () => {
@@ -77,3 +77,59 @@ Deno.test("spawnHiddenProcess reports command lookup failures without parsing ou
   assertEquals(status.code, 127);
   assert(isCommandNotFoundError(status.error));
 });
+
+Deno.test("spawnHiddenProcess kill stops a running child", async () => {
+  const directory = await Deno.makeTempDir();
+  const child = spawnHiddenProcess(
+    Deno.execPath(),
+    ["eval", "setInterval(() => {}, 1_000)"],
+    directory,
+  );
+
+  child.kill("SIGTERM");
+
+  assertEquals((await child.status).success, false);
+});
+
+Deno.test("spawnHiddenProcess kill terminates the process tree on Windows", async () => {
+  if (Deno.build.os !== "windows") return;
+  const directory = await Deno.makeTempDir();
+  const pidFile = join(directory, "child.pid");
+  // A .ps1 shim runs node synchronously, so the spawned child is PowerShell and
+  // the node process is a child that must not survive kill.
+  const script = join(directory, "long-running.ps1");
+  const jsPath = pidFile.replaceAll("\\", "/");
+  await Deno.writeTextFile(
+    script,
+    [
+      `node -e "require('node:fs').writeFileSync('${jsPath}', String(process.pid)); setInterval(() => {}, 1000)"`,
+    ].join("\n"),
+  );
+
+  const child = spawnHiddenProcess(script, [], directory);
+  let nodePid = 0;
+  for (let i = 0; i < 200 && nodePid === 0; i++) {
+    try {
+      nodePid = Number((await Deno.readTextFile(pidFile)).trim());
+    } catch {
+      // The node child has not written its PID yet.
+    }
+    if (nodePid === 0) await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert(nodePid > 0, "the node child did not start");
+
+  child.kill("SIGTERM");
+  assertEquals((await child.status).success, false);
+
+  let alive = await processExists(nodePid);
+  for (let i = 0; i < 40 && alive; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    alive = await processExists(nodePid);
+  }
+  assertFalse(alive, "the grandchild node process is still running");
+});
+
+async function processExists(pid: number): Promise<boolean> {
+  const output = await runHiddenCommand("tasklist", ["/fi", `PID eq ${pid}`, "/nh"]);
+  return output.stdout.includes(String(pid));
+}

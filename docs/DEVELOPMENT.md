@@ -20,7 +20,9 @@ npx --version
 
 启动阶段不会执行 `npx -y @deepseek-ai/dsh --version`，也不会下载 DSH 包。Unix 平台使用用户默认 login
 shell 完成一次环境探测，并通过同一 login-shell 机制启动实际命令，以继承 mise、nvm 等版本管理器环境。
-Windows 通过系统命令解析可执行文件；`.cmd` launcher 由 `%ComSpec%` 执行固定参数。
+Windows 使用 PowerShell 执行 npm 生成的 `.ps1` shim（不依赖 cmd.exe）；优先使用用户安装的
+`pwsh`（PowerShell 7），未安装时回退到系统自带的 `powershell.exe`（5.1），`.ps1` 由 `-File`
+以绝对路径执行固定参数。
 
 实际启动命令等价于：
 
@@ -115,8 +117,8 @@ token、secret、Authorization、Bearer 凭据和私钥标记进行脱敏，并�
 
 - 所有本地 Web 地址和 SSH 转发只绑定回环地址，不向局域网暴露监听端口。
 - OpenSSH 使用参数数组直接启动，不经过 shell 拼接。
-- Unix 的 `dsh`/npx 由 login shell 通过固定位置参数 `exec`；Windows `.cmd` launcher 使用固定
-  `%ComSpec%` 参数。用户输入不会拼接进 shell 脚本。
+- Unix 的 `dsh`/npx 由 login shell 通过固定位置参数 `exec`；Windows 的 `.ps1` 由 `powershell.exe`
+  通过固定 `-File` 参数启动，不依赖 cmd.exe。用户输入不会拼接进 shell 脚本。
 - 选择页的配置、删除和连接 bindings 会在导航到 DSH Web 前解除；远端页面无法调用这些桌面特权操作。
 - Windows CEF 仅通过系统 `user32.dll` 设置原生窗口图标；远端页面没有 FFI binding。
 - Deno 权限集允许读取和写入用户配置/日志、启动本地命令、访问回环网络，并为 Pino 开放主机名查询。

@@ -947,6 +947,10 @@
                 <span>npx</span>
                 <strong id="local-npx-version">正在检测...</strong>
               </div>
+              <div class="environment-item" id="local-powershell-row">
+                <span>PowerShell</span>
+                <strong id="local-powershell-version">正在检测...</strong>
+              </div>
             </div>
             <div class="local-start-card">
               <div>
@@ -1205,11 +1209,26 @@
         setEnvironmentValue("local-node-version", environment.nodeVersion);
         setEnvironmentValue("local-dsh-version", environment.dshVersion);
         setEnvironmentValue("local-npx-version", environment.npxVersion);
+        var psRow = document.getElementById("local-powershell-row");
+        var psVersion = document.getElementById("local-powershell-version");
+        if (environment.powershell) {
+          psRow.hidden = false;
+          psVersion.textContent = environment.powershell.pwshAvailable
+            ? "PowerShell 7 (pwsh)"
+            : "PowerShell 5.1";
+          psVersion.classList.toggle("unavailable", !environment.powershell.pwshAvailable);
+        } else {
+          psRow.hidden = true;
+        }
         document.getElementById("start-local").disabled = !environment.canStart;
         document.getElementById("local-start-description").textContent = environment.launcher === "dsh"
-          ? "将使用已安装的 dsh CLI 启动，不会下载额外包。"
+          ? environment.powershell && !environment.powershell.pwshAvailable
+            ? "将使用已安装的 dsh CLI 启动；推荐安装 PowerShell 7 (pwsh) 以获得更好的兼容性。"
+            : "将使用已安装的 dsh CLI 启动，不会下载额外包。"
           : environment.launcher === "npx"
-          ? "未找到 dsh；点击后才会通过 npx 下载并启动 DSH。"
+          ? environment.powershell && !environment.powershell.pwshAvailable
+            ? "未找到 dsh；点击后通过 npx 下载并启动 DSH。推荐安装 PowerShell 7 (pwsh)。"
+            : "未找到 dsh；点击后才会通过 npx 下载并启动 DSH。"
           : "需要可用的 dsh 或 npx，才能启动本地模式。";
       }
 

@@ -149,6 +149,7 @@ async function startDesktopWithShellServer(
           nodeVersion: localDshEnvironment.node?.version,
           dshVersion: localDshEnvironment.dsh?.version,
           npxVersion: localDshEnvironment.npx?.version,
+          powershell: localDshEnvironment.powershell,
           launcher: localDshLauncher?.kind,
           canStart: Boolean(localDshLauncher),
         },
