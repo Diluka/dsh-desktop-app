@@ -115,12 +115,8 @@ Linux 构建和 AppImage 任务继续保留给源码用户自行执行；CI 与 
 ## Latest Release
 
 固定下载地址：[`releases/tag/latest`](https://github.com/Diluka/dsh-desktop-app/releases/tag/latest)。每次成功的
-`main` 流水线会覆盖其中的同名分发产物。各文件的用途与安装方式见
+`main` 流水线会覆盖其中的同名分发产物。下载文件、流水线门禁与平台发布范围见
 [发布制品说明](docs/RELEASE_ARTIFACTS.md)。
-
-`main` 的 CI 依次执行四平台测试、Windows/macOS 四种分发产物构建和 `latest` Release
-更新。只有前一阶段全部成功才会进入下一阶段；任何测试或打包失败都会保留上一版 Release。Pull Request
-只运行测试，不发布产物。
 
 ## 日志
 
@@ -156,8 +152,9 @@ stdout/stderr，不经过脱敏。外发前请检查其中的 Host、用户名�
 
 ## 安全边界
 
-- `dsh` 和 SSH 通过 `child_process.spawn` 参数数组启动，不经过 shell；Unix 上的 npx 同样直接启动。
-  Windows 的 npx fallback 通过继承环境中的 `%ComSpec%` 执行固定参数，不拼接用户输入。
+- OpenSSH 通过 `child_process.spawn` 参数数组直接启动，不经过 shell。Unix 上的 `dsh` 和 npx fallback
+  通过用户默认 login shell 启动，并用固定位置参数 `exec`；Windows 的 `.cmd` launcher
+  通过继承环境中的 `%ComSpec%` 执行固定参数。以上路径均不拼接用户输入。
 - 转发固定为 `127.0.0.1:<自动端口> -> 127.0.0.1:<远端 DSH 端口>`。
 - `BatchMode=yes` 防止无界面的密码提示卡住应用。
 - 主机密钥校验沿用用户 `.ssh/config` 与 OpenSSH 默认策略，应用不会降低现有策略。
@@ -170,7 +167,7 @@ stdout/stderr，不经过脱敏。外发前请检查其中的 Host、用户名�
 ## 项目结构
 
 ```text
-app.ts              共享桌面生命周期、bindings 与安全导航
+app.ts              共享桌面生命周期、bindings、安全导航与 locale 诊断
 main.ts             CEF 入口
 main_webview.ts     WebView2 入口
 assets/             SVG 源图、1024px PNG、Windows ICO 与 macOS ICNS
@@ -180,9 +177,9 @@ src/ssh_tunnel.ts   OpenSSH 探测、隧道和错误分类
 src/local_dsh.ts    本地 DSH Web 启动、探测和错误分类
 src/loopback_http.ts 回环端口分配与 HTTP 就绪探测
 src/hidden_process.ts 隐藏进程、独立输出文件与退出状态适配
+src/managed_endpoint.ts 本地 Web 进程的共享停止与退出生命周期
 src/open_directory.ts 系统文件管理器调用
 src/windows_window_icon.ts Windows 原生窗口图标
-src/browser_locale.ts 运行时系统 locale 检测
 src/logger.ts       Pino 文件日志配置与脱敏
 src/ui.ts           本地服务器选择页
 src/app_paths.ts    Windows/Linux/macOS 应用数据路径
