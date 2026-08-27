@@ -3,9 +3,19 @@ import SHELL_HTML from "../src/ui.html" with { type: "text" };
 import { handleShellRequest } from "../src/ui.ts";
 
 Deno.test("shell html has key elements and parseable inline scripts", () => {
-  for (const id of ["start-local", "server-form", "remote-port", "server-list", "toast"]) {
+  for (
+    const id of [
+      "start-local",
+      "cancel-local-start",
+      "server-form",
+      "remote-port",
+      "server-list",
+      "toast",
+    ]
+  ) {
     assertMatch(SHELL_HTML, new RegExp(`id="${id}"`, "u"));
   }
+  assertMatch(SHELL_HTML, /npx/u);
 
   const scripts = [...SHELL_HTML.matchAll(/<script>([\s\S]*?)<\/script>/gu)].map((match) =>
     match[1]

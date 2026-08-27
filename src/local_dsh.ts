@@ -6,14 +6,14 @@ import {
 } from "./hidden_process.ts";
 import { allocateLoopbackPort, probeHttp } from "./loopback_http.ts";
 
-const DEFAULT_STARTUP_TIMEOUT_MS = 20_000;
 const MAX_LOCAL_PORT_ATTEMPTS = 3;
+const NPX_DSH_PACKAGE = "@deepseek-ai/dsh";
 
 export type LocalDshErrorCode =
   | "DSH_NOT_FOUND"
   | "LOCAL_PORT_BUSY"
-  | "DSH_WEB_UNAVAILABLE"
-  | "DSH_WEB_FAILED";
+  | "DSH_WEB_FAILED"
+  | "START_CANCELLED";
 
 export class LocalDshError extends Error {
   override name = "LocalDshError";
@@ -25,12 +25,11 @@ export class LocalDshError extends Error {
 
 interface StartLocalDshOptions {
   readonly command?: string;
-  readonly startupTimeoutMs?: number;
   readonly allocatePort?: () => Promise<number>;
   readonly spawn: (command: string, args: string[]) => ManagedHiddenProcess;
   readonly probe?: (url: string) => Promise<void>;
   readonly delay?: (milliseconds: number) => Promise<void>;
-  readonly now?: () => number;
+  readonly signal?: AbortSignal;
 }
 
 export interface LocalDshExit {
@@ -92,16 +91,45 @@ export function buildDshWebArguments(port: number): string[] {
   return ["web", "--host", "127.0.0.1", "--port", String(port), "--no-open"];
 }
 
+export function buildNpxDshWebArguments(port: number): string[] {
+  return ["-y", NPX_DSH_PACKAGE, ...buildDshWebArguments(port)];
+}
+
 export async function startLocalDshWeb(
   logger: Logger,
   options: StartLocalDshOptions,
 ): Promise<LocalDshWeb> {
-  for (let attempt = 1; attempt <= MAX_LOCAL_PORT_ATTEMPTS; attempt++) {
+  const cancelOutcome = waitForCancellation(options.signal);
+  let launcher: "dsh" | "npx" = "dsh";
+  let portAttempt = 0;
+  while (portAttempt < MAX_LOCAL_PORT_ATTEMPTS) {
+    throwIfCancelled(options.signal);
     try {
-      return await startLocalDshAttempt(logger, options);
+      return await startLocalDshAttempt(logger, options, launcher, cancelOutcome);
     } catch (error) {
-      if (!(error instanceof LocalDshError) || error.code !== "LOCAL_PORT_BUSY") throw error;
-      logger.warn({ event: "local_dsh.port_retry", attempt }, "Local DSH Web port was busy");
+      throwIfCancelled(options.signal);
+      if (error instanceof LocalDshError && error.code === "START_CANCELLED") throw error;
+      if (launcher === "dsh" && error instanceof LocalDshError && error.code === "DSH_NOT_FOUND") {
+        launcher = "npx";
+        logger.warn(
+          { event: "local_dsh.npx_fallback", package: NPX_DSH_PACKAGE },
+          "Local dsh command was unavailable; falling back to npx",
+        );
+        continue;
+      }
+      if (error instanceof LocalDshError && error.code === "LOCAL_PORT_BUSY") {
+        portAttempt += 1;
+        logger.warn(
+          { event: "local_dsh.port_retry", launcher, attempt: portAttempt },
+          "Local DSH Web port was busy",
+        );
+        continue;
+      }
+      if (launcher === "npx") {
+        logger.warn({ event: "local_dsh.npx_failed", err: error }, "npx fallback failed");
+        throw new LocalDshError("DSH_NOT_FOUND", dshInstallHelp());
+      }
+      throw error;
     }
   }
   throw new LocalDshError("LOCAL_PORT_BUSY", "无法分配本地端口，请重试");
@@ -110,19 +138,26 @@ export async function startLocalDshWeb(
 async function startLocalDshAttempt(
   logger: Logger,
   options: StartLocalDshOptions,
+  launcher: "dsh" | "npx",
+  cancelOutcome: Promise<{ kind: "cancel" }>,
 ): Promise<LocalDshWeb> {
-  const command = options.command ?? "dsh";
+  throwIfCancelled(options.signal);
   const allocatePort = options.allocatePort ?? allocateLoopbackPort;
   const spawn = options.spawn;
   const probe = options.probe ?? probeHttp;
   const delay = options.delay ?? sleep;
-  const now = options.now ?? Date.now;
-  const startupTimeoutMs = options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS;
-  const localPort = await allocatePort();
-  const args = buildDshWebArguments(localPort);
+  const allocation = await Promise.race([
+    allocatePort().then((port) => ({ kind: "port" as const, port })),
+    cancelOutcome,
+  ]);
+  if (allocation.kind === "cancel") throw cancelledError();
+  throwIfCancelled(options.signal);
+  const localPort = allocation.port;
+  const { command, args } = resolveLocalDshLaunch(launcher, localPort, options.command);
 
   logger.info({
     event: "local_dsh.starting",
+    launcher,
     port: localPort,
   }, "Starting local DSH Web");
 
@@ -156,42 +191,63 @@ async function startLocalDshAttempt(
     return error;
   }
 
-  const startedAt = now();
-  while (now() - startedAt < startupTimeoutMs) {
+  const startedAt = Date.now();
+  while (true) {
     const outcome = await Promise.race([
       exitOutcome,
+      cancelOutcome,
       probe(web.url).then(
         () => ({ kind: "ready" as const }),
         () => ({ kind: "retry" as const }),
       ),
     ]);
+    if (outcome.kind === "cancel") {
+      await web.stop();
+      throw cancelledError();
+    }
     if (outcome.kind === "exit") throw await failureFromExit(outcome.value);
     if (outcome.kind === "ready") {
+      if (options.signal?.aborted) {
+        await web.stop();
+        throw cancelledError();
+      }
       logger.info({
         event: "local_dsh.ready",
         port: localPort,
         childOutputFile: web.outputFile,
-        startupMs: Math.max(0, now() - startedAt),
+        startupMs: Math.max(0, Date.now() - startedAt),
       }, "Local DSH Web is ready");
       return web;
     }
 
     const pause = await Promise.race([
       exitOutcome,
+      cancelOutcome,
       delay(150).then(() => ({ kind: "retry" as const })),
     ]);
+    if (pause.kind === "cancel") {
+      await web.stop();
+      throw cancelledError();
+    }
     if (pause.kind === "exit") throw await failureFromExit(pause.value);
   }
+}
 
-  await web.stop();
-  logger.warn({
-    event: "local_dsh.unavailable",
-    childOutputFile: web.outputFile,
-  }, "Local DSH Web did not become ready");
-  throw new LocalDshError(
-    "DSH_WEB_UNAVAILABLE",
-    "dsh web 已启动，但未在限定时间内响应；请查看日志。",
-  );
+function resolveLocalDshLaunch(
+  launcher: "dsh" | "npx",
+  port: number,
+  dshCommand?: string,
+): { command: string; args: string[] } {
+  if (launcher === "dsh") {
+    return { command: dshCommand ?? "dsh", args: buildDshWebArguments(port) };
+  }
+  const args = buildNpxDshWebArguments(port);
+  return Deno.build.os === "windows"
+    ? {
+      command: Deno.env.get("ComSpec") ?? "cmd.exe",
+      args: ["/d", "/s", "/c", "npx.cmd", ...args],
+    }
+    : { command: "npx", args };
 }
 
 function classifyLocalDshFailure(detail: string, processError?: Error): LocalDshError {
@@ -202,16 +258,33 @@ function classifyLocalDshFailure(detail: string, processError?: Error): LocalDsh
   ) {
     return new LocalDshError("LOCAL_PORT_BUSY", "本地端口刚被其他程序占用，正在重试");
   }
-  if (
-    isCommandNotFoundError(processError) || /\bENOENT\b|command not found|not found/iu.test(detail)
-  ) {
+  if (isCommandNotFoundError(processError)) {
     return new LocalDshError("DSH_NOT_FOUND", dshInstallHelp());
   }
   return new LocalDshError("DSH_WEB_FAILED", "dsh web 启动失败，详细信息已写入日志。");
 }
 
+function waitForCancellation(signal?: AbortSignal): Promise<{ kind: "cancel" }> {
+  return new Promise((resolve) => {
+    if (!signal) return;
+    if (signal.aborted) {
+      resolve({ kind: "cancel" });
+      return;
+    }
+    signal.addEventListener("abort", () => resolve({ kind: "cancel" }), { once: true });
+  });
+}
+
+function throwIfCancelled(signal?: AbortSignal): void {
+  if (signal?.aborted) throw cancelledError();
+}
+
+function cancelledError(): LocalDshError {
+  return new LocalDshError("START_CANCELLED", "本地模式启动已终止");
+}
+
 function dshInstallHelp(): string {
-  return "未找到 dsh 命令，请先安装 DSH CLI，并确认 dsh 可从 PATH 启动。";
+  return "无法通过 dsh 或 npx 启动 DSH，请安装 DSH CLI 并确认 dsh 可从 PATH 启动。";
 }
 
 function sleep(milliseconds: number): Promise<void> {

@@ -86,6 +86,7 @@ async function startDesktopWithShellServer(
 
   let activeTunnel: SshTunnel | undefined;
   let activeLocal: LocalDshWeb | undefined;
+  let localStartController: AbortController | undefined;
   let connecting = false;
   let shellBindingsActive = false;
   let shuttingDown = false;
@@ -172,6 +173,12 @@ async function startDesktopWithShellServer(
       await connectLocal();
       return null;
     });
+    window.bind("cancelLocalStart", () => {
+      const controller = localStartController;
+      if (!controller) return Promise.resolve(false);
+      controller.abort();
+      return Promise.resolve(true);
+    });
     shellBindingsActive = true;
   }
 
@@ -183,6 +190,7 @@ async function startDesktopWithShellServer(
     window.unbind("openLogDirectory");
     window.unbind("connectProfile");
     window.unbind("connectLocal");
+    window.unbind("cancelLocalStart");
     shellBindingsActive = false;
   }
 
@@ -229,6 +237,8 @@ async function startDesktopWithShellServer(
 
   async function connectLocal(): Promise<void> {
     if (connecting) throw new Error("已有连接正在建立，请稍候");
+    const controller = new AbortController();
+    localStartController = controller;
     connecting = true;
     try {
       if (activeTunnel) {
@@ -239,7 +249,10 @@ async function startDesktopWithShellServer(
         await activeLocal.stop();
         activeLocal = undefined;
       }
-      const local = await startLocalDshWeb(logger, { spawn: spawnChild });
+      const local = await startLocalDshWeb(logger, {
+        spawn: spawnChild,
+        signal: controller.signal,
+      });
       activeLocal = local;
 
       // The DSH Web page must not inherit privileged bindings from the local selector.
@@ -254,6 +267,10 @@ async function startDesktopWithShellServer(
       }
       void observeLocal(local);
     } catch (error) {
+      if (error instanceof LocalDshError && error.code === "START_CANCELLED") {
+        logger.info({ event: "local_dsh.start_cancelled" }, "Local DSH Web start was cancelled");
+        throw error;
+      }
       logger.error(
         { event: "local_dsh.connect_failed", err: error },
         "Failed to start local DSH Web",
@@ -261,6 +278,7 @@ async function startDesktopWithShellServer(
       if (error instanceof LocalDshError) throw error;
       throw new Error("本地 DSH Web 启动失败，详细信息已写入日志");
     } finally {
+      if (localStartController === controller) localStartController = undefined;
       connecting = false;
     }
   }
@@ -315,6 +333,8 @@ async function startDesktopWithShellServer(
     if (shuttingDown) return;
     shuttingDown = true;
     logger.info({ event: "app.shutdown" }, "DSH Desktop is shutting down");
+    localStartController?.abort();
+    localStartController = undefined;
     const tunnel = activeTunnel;
     const local = activeLocal;
     activeTunnel = undefined;

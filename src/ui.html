@@ -623,6 +623,11 @@
       margin-right: 7px;
       color: var(--text-tertiary);
     }
+    .connecting-actions {
+      display: flex;
+      justify-content: flex-end;
+      margin: 20px 0 0 34px;
+    }
 
     @keyframes spin {
       to {
@@ -816,6 +821,10 @@
           <li>建立回环端口转发</li>
           <li>验证远端 DSH Web</li>
         </ul>
+        <div class="connecting-actions">
+          <button id="cancel-local-start" class="button secondary" type="button"
+            hidden>终止启动</button>
+        </div>
       </div>
     </div>
 
@@ -831,6 +840,8 @@
       var notice = document.getElementById("notice");
       var toast = document.getElementById("toast");
       var connecting = document.getElementById("connecting");
+      var cancelLocalButton = document.getElementById("cancel-local-start");
+      var localCancelRequested = false;
       var toastTimer;
       var themeMedia = window.matchMedia("(prefers-color-scheme: dark)");
       var themeButtons = Array.from(document.querySelectorAll(".theme-option"));
@@ -847,6 +858,7 @@
       applyTheme(themePreference, false);
 
       document.getElementById("start-local").addEventListener("click", connectLocal);
+      cancelLocalButton.addEventListener("click", cancelLocalStart);
       document.getElementById("add-server").addEventListener("click", function () {
         openEditor();
       });
@@ -1051,25 +1063,56 @@
       }
 
       async function connectLocal() {
-        showConnecting("正在启动本地模式", "正在启动本机 dsh web...", [
-          "选择空闲本地端口",
-          "启动 dsh web",
-          "验证本地 DSH Web",
-        ]);
+        localCancelRequested = false;
+        showConnecting(
+          "正在启动本地模式",
+          "优先启动 dsh；缺失时使用 npx，首次下载可能超过 30 分钟且不会自动超时。",
+          [
+            "优先启动本机 dsh",
+            "缺失时通过 npx 下载并启动",
+            "等待期间可随时点击“终止启动”",
+          ],
+          true,
+        );
         try {
           await globalThis.bindings.connectLocal();
         } catch (error) {
           connecting.hidden = true;
-          alert(errorMessage(error));
+          if (localCancelRequested) showToast("本地模式启动已终止");
+          else alert(errorMessage(error));
         }
       }
 
-      function showConnecting(title, target, steps) {
+      async function cancelLocalStart() {
+        if (cancelLocalButton.disabled) return;
+        localCancelRequested = true;
+        cancelLocalButton.disabled = true;
+        cancelLocalButton.textContent = "正在终止...";
+        try {
+          var accepted = await globalThis.bindings.cancelLocalStart();
+          if (!accepted) {
+            localCancelRequested = false;
+            cancelLocalButton.disabled = false;
+            cancelLocalButton.textContent = "终止启动";
+            showToast("当前没有正在启动的本地模式");
+          }
+        } catch (error) {
+          localCancelRequested = false;
+          cancelLocalButton.disabled = false;
+          cancelLocalButton.textContent = "终止启动";
+          showToast(errorMessage(error));
+        }
+      }
+
+      function showConnecting(title, target, steps, cancellable) {
         document.getElementById("connecting-title").textContent = title;
         document.getElementById("connecting-target").textContent = target;
         Array.from(document.querySelectorAll(".connecting-steps li")).forEach(function (item, index) {
           item.textContent = steps[index] || "";
         });
+        cancelLocalButton.hidden = !cancellable;
+        cancelLocalButton.disabled = false;
+        cancelLocalButton.textContent = "终止启动";
         connecting.hidden = false;
       }
 
