@@ -207,24 +207,24 @@ export function windowsApplyCommand(
   return [
     `powershell.exe -NoProfile -NonInteractive -Command "Wait-Process -Id ${
       validatePid(parentPid)
-    }"`,
-    `rmdir /s /q ${quoteWindows(stagingDirectory)} 2>nul`,
-    `rmdir /s /q ${quoteWindows(replacementDirectory)} 2>nul`,
-    `rmdir /s /q ${quoteWindows(backupDirectory)} 2>nul`,
-    `mkdir ${quoteWindows(stagingDirectory)}`,
-    `tar -xf ${quoteWindows(archive)} -C ${quoteWindows(stagingDirectory)}`,
+    } -ErrorAction SilentlyContinue" || exit /b 1`,
+    `${removeWindowsDirectory(stagingDirectory)} || exit /b 1`,
+    `${removeWindowsDirectory(replacementDirectory)} || exit /b 1`,
+    `${removeWindowsDirectory(backupDirectory)} || exit /b 1`,
+    `mkdir ${quoteWindows(stagingDirectory)} || exit /b 1`,
+    `tar -xf ${quoteWindows(archive)} -C ${quoteWindows(stagingDirectory)} || exit /b 1`,
     `move ${quoteWindows(win32.join(stagingDirectory, appName))} ${
       quoteWindows(replacementDirectory)
-    }`,
-    `rmdir /s /q ${quoteWindows(stagingDirectory)}`,
-    `move ${quoteWindows(appDirectory)} ${quoteWindows(backupDirectory)}`,
+    } || exit /b 1`,
+    `${removeWindowsDirectory(stagingDirectory)} || exit /b 1`,
+    `move ${quoteWindows(appDirectory)} ${quoteWindows(backupDirectory)} || exit /b 1`,
     `move ${quoteWindows(replacementDirectory)} ${quoteWindows(appDirectory)} || (move ${
       quoteWindows(backupDirectory)
-    } ${quoteWindows(appDirectory)} && exit /b 1)`,
-    `rmdir /s /q ${quoteWindows(updateDirectory)} 2>nul`,
-    `start "" ${quoteWindows(win32.join(appDirectory, "DSH-Desktop.exe"))}`,
-    `rmdir /s /q ${quoteWindows(backupDirectory)} 2>nul`,
-  ].join(" && ");
+    } ${quoteWindows(appDirectory)} & exit /b 1)`,
+    `${removeWindowsDirectory(updateDirectory)} || exit /b 1`,
+    `start "" ${quoteWindows(win32.join(appDirectory, "DSH-Desktop.exe"))} || exit /b 1`,
+    `${removeWindowsDirectory(backupDirectory)} || exit /b 1`,
+  ].join(" & ");
 }
 
 export function macosApplyCommand(
@@ -242,6 +242,7 @@ export function macosApplyCommand(
   const backupDirectory = posix.join(appParent, `.${appName}.update-backup`);
   if (!appName.endsWith(".app")) throw new Error("无法确定 macOS 应用目录");
   return [
+    "set -e",
     `while kill -0 ${validatePid(parentPid)} 2>/dev/null; do sleep 1; done`,
     `rm -rf ${quoteShell(stagingDirectory)} ${quoteShell(replacementDirectory)} ${
       quoteShell(backupDirectory)
@@ -251,13 +252,13 @@ export function macosApplyCommand(
     `mv ${quoteShell(posix.join(stagingDirectory, appName))} ${quoteShell(replacementDirectory)}`,
     `rm -rf ${quoteShell(stagingDirectory)}`,
     `mv ${quoteShell(appDirectory)} ${quoteShell(backupDirectory)}`,
-    `mv ${quoteShell(replacementDirectory)} ${quoteShell(appDirectory)} || (mv ${
+    `if ! mv ${quoteShell(replacementDirectory)} ${quoteShell(appDirectory)}; then mv ${
       quoteShell(backupDirectory)
-    } ${quoteShell(appDirectory)} && exit 1)`,
+    } ${quoteShell(appDirectory)}; exit 1; fi`,
     `rm -rf ${quoteShell(updateDirectory)}`,
     `open ${quoteShell(appDirectory)}`,
     `rm -rf ${quoteShell(backupDirectory)}`,
-  ].join(" && ");
+  ].join("; ");
 }
 
 async function fetchRelease(fetcher: UpdateFetcher, operation: string): Promise<ReleasePayload> {
@@ -306,8 +307,15 @@ function validatePid(pid: number): number {
 }
 
 function quoteWindows(value: string): string {
-  if (value.includes('"')) throw new Error("更新路径不能包含双引号");
+  if (value.includes('"') || value.includes("%")) {
+    throw new Error("更新路径不能包含双引号或百分号");
+  }
   return `"${value}"`;
+}
+
+function removeWindowsDirectory(directory: string): string {
+  const quotedDirectory = quoteWindows(directory);
+  return `if exist ${quotedDirectory} (rmdir /s /q ${quotedDirectory}) else (ver > nul)`;
 }
 
 function quoteShell(value: string): string {
