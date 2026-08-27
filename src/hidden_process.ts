@@ -4,6 +4,19 @@ import { join } from "node:path";
 
 const WINDOWS_HIDE_PROCESS = true;
 const MAX_OUTPUT_TAIL_BYTES = 16 * 1024;
+// cmd.exe returns errorlevel 9009 (0x2331) when it cannot find the command it
+// was asked to run, instead of failing the spawn with an ENOENT error.
+const WINDOWS_CMD_NOT_FOUND_CODE = 0x2331;
+
+export function isWindowsCommandNotFoundExit(
+  os: typeof Deno.build.os,
+  command: string,
+  code: number | null,
+): boolean {
+  return os === "windows" &&
+    command.toLowerCase().endsWith(".cmd") &&
+    code === WINDOWS_CMD_NOT_FOUND_CODE;
+}
 
 export interface HiddenProcessStatus {
   readonly success: boolean;
@@ -67,7 +80,13 @@ export function spawnHiddenProcess(
   };
 
   child.once("error", (error) => finish(127, null, error));
-  child.once("close", (code, signal) => finish(code ?? 1, signal));
+  child.once("close", (code, signal) => {
+    if (isWindowsCommandNotFoundExit(Deno.build.os, command, code)) {
+      finish(code ?? 1, signal, new Deno.errors.NotFound(`${command} was not found`));
+      return;
+    }
+    finish(code ?? 1, signal);
+  });
 
   return {
     outputFile,
@@ -141,6 +160,13 @@ export async function runHiddenCommand(
       reject(error);
     });
     child.once("close", (code, signal) => {
+      if (isWindowsCommandNotFoundExit(Deno.build.os, command, code)) {
+        if (settled) return;
+        settled = true;
+        if (timeout) clearTimeout(timeout);
+        reject(new Deno.errors.NotFound(`${command} was not found`));
+        return;
+      }
       finish({
         success: code === 0,
         code: code ?? 1,
