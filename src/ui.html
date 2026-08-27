@@ -156,8 +156,13 @@
       letter-spacing: 0.04em;
     }
 
-    .masthead-copy {
+    .masthead-modes {
+      display: grid;
+      gap: 8px;
       margin-top: 34px;
+    }
+
+    .masthead-copy {
       padding: 12px;
       border-radius: 12px;
       background: var(--surface-selected);
@@ -710,10 +715,17 @@
       <aside class="masthead">
         <div>
           <div class="brand-mark">deepseek</div>
-          <div class="masthead-copy">
-            <p class="mode-label">连接方式</p>
-            <h1>本地 / 远程模式</h1>
-            <p>可直接启动本机 dsh web，或通过 OpenSSH 连接远程 DSH Web。</p>
+          <div class="masthead-modes">
+            <div class="masthead-copy">
+              <p class="mode-label">连接方式</p>
+              <h1>远程模式</h1>
+              <p>通过本机 OpenSSH 连接远程 DSH Web。</p>
+            </div>
+            <div class="masthead-copy">
+              <p class="mode-label">连接方式</p>
+              <h1>本地模式</h1>
+              <p>直接启动本机 dsh web。</p>
+            </div>
           </div>
         </div>
         <div class="masthead-footer">

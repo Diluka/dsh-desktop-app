@@ -24,6 +24,15 @@ Deno.test("shell html has key elements and parseable inline scripts", () => {
   for (const script of scripts) new Function(script);
 });
 
+Deno.test("shell keeps the remote card and adds a local card", () => {
+  assertEquals([...SHELL_HTML.matchAll(/class="masthead-copy"/gu)].length, 2);
+  assertMatch(
+    SHELL_HTML,
+    /<h1>远程模式<\/h1>\s*<p>通过本机 OpenSSH 连接远程 DSH Web。<\/p>/u,
+  );
+  assertMatch(SHELL_HTML, /<h1>本地模式<\/h1>\s*<p>直接启动本机 dsh web。<\/p>/u);
+});
+
 Deno.test("shell renders Unicode delete confirmation in-page", () => {
   assertFalse(/\bconfirm\s*\(/u.test(SHELL_HTML));
   assertMatch(
