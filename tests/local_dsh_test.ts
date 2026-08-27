@@ -13,6 +13,7 @@ import {
   probeLocalDshEnvironment,
   startLocalDshWeb,
 } from "../src/local_dsh.ts";
+import { resetWindowsPowershellDetection } from "../src/windows_powershell.ts";
 import { fakeChild, memoryLogger, tempFile } from "./test_helpers.ts";
 
 const DSH_LAUNCHER = {
@@ -38,12 +39,15 @@ function windowsPs1Path(name: string) {
   return `C:\\tools\\npm\\${name}`;
 }
 
-// Windows probe mock: powershell.exe resolves .ps1 shims to an absolute path
-// (Get-Command), and every other command reports a version.
+// Windows probe mock: pwsh.exe (PowerShell 7) is detected, and the PowerShell
+// Get-Command probe resolves .ps1 shims to an absolute path.
 function windowsShimProbe() {
   return (command: string, args: string[]) => {
-    if (command === "powershell.exe") {
+    if (command === "pwsh.exe" || command === "powershell.exe") {
       const script = args.at(-1) ?? "";
+      if (script.includes("$PSVersionTable")) {
+        return Promise.resolve(versionOutput("7.6.5"));
+      }
       const name = /Get-Command ([a-z0-9._-]+)/iu.exec(script)?.[1];
       return Promise.resolve(versionOutput(name ? windowsPs1Path(name) : ""));
     }
@@ -142,20 +146,29 @@ Deno.test("probeLocalDshEnvironment does not hide a broken login-shell dsh behin
 });
 
 Deno.test("probeLocalDshEnvironment prefers Windows .ps1 shims", async () => {
+  resetWindowsPowershellDetection();
   const environment = await probeLocalDshEnvironment(windowsShimProbe(), "windows");
 
   assertEquals(environment, {
     node: { command: "node", version: "v24.19.0" },
     dsh: { command: windowsPs1Path("dsh.ps1"), version: "0.1.1-rc.2" },
     npx: { command: windowsPs1Path("npx.ps1"), version: "0.1.1-rc.2" },
+    powershell: { pwshAvailable: true, command: "pwsh.exe" },
     launcher: { kind: "dsh", command: windowsPs1Path("dsh.ps1"), prefix: [] },
   });
 });
 
 Deno.test("probeLocalDshEnvironment reports missing tools when .ps1 shims are absent", async () => {
+  resetWindowsPowershellDetection();
   const environment = await probeLocalDshEnvironment(
-    (command) => {
-      if (command === "powershell.exe") return Promise.resolve(versionOutput(""));
+    (command, args) => {
+      if (command === "pwsh.exe" || command === "powershell.exe") {
+        const script = args.at(-1) ?? "";
+        if (script.includes("$PSVersionTable")) {
+          return Promise.resolve(versionOutput("7.6.5"));
+        }
+        return Promise.resolve(versionOutput(""));
+      }
       return Promise.resolve(versionOutput(command === "node" ? "v24.19.0" : "0.1.1-rc.2"));
     },
     "windows",
@@ -168,10 +181,14 @@ Deno.test("probeLocalDshEnvironment reports missing tools when .ps1 shims are ab
 });
 
 Deno.test("probeLocalDshEnvironment falls back to npx when dsh is absent", async () => {
+  resetWindowsPowershellDetection();
   const environment = await probeLocalDshEnvironment(
     (command, args) => {
-      if (command === "powershell.exe") {
+      if (command === "pwsh.exe" || command === "powershell.exe") {
         const script = args.at(-1) ?? "";
+        if (script.includes("$PSVersionTable")) {
+          return Promise.resolve(versionOutput("7.6.5"));
+        }
         const name = /Get-Command ([a-z0-9._-]+)/iu.exec(script)?.[1];
         if (name?.startsWith("dsh")) return Promise.resolve(versionOutput(""));
         return Promise.resolve(versionOutput(name ? windowsPs1Path(name) : ""));

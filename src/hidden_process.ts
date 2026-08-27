@@ -1,6 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { closeSync, openSync } from "node:fs";
 import { join } from "node:path";
+import { windowsPowershellCommand } from "./windows_powershell.ts";
 import { assignChildToKillOnCloseJob } from "./windows_job.ts";
 
 const WINDOWS_HIDE_PROCESS = true;
@@ -31,12 +32,13 @@ function resolveProcessLaunch(
   if (Deno.build.os !== "windows") return { command, args };
   if (command.toLowerCase().endsWith(".ps1")) {
     // npm installs .ps1 shims on Windows; PowerShell is built in, so no cmd.exe
-    // dependency is needed. Running the .ps1 through PowerShell keeps `node` a
-    // direct child of the PowerShell process, so taskkill /t and the job object
-    // can terminate the whole tree instead of orphaning the node processes that
+    // dependency is needed, and pwsh (PowerShell 7) is preferred when the user
+    // installed it. Running the .ps1 through PowerShell keeps `node` a direct
+    // child of the PowerShell process, so taskkill /t and the job object can
+    // terminate the whole tree instead of orphaning the node processes that
     // `dsh web` spawns.
     return {
-      command: "powershell.exe",
+      command: windowsPowershellCommand(),
       args: [
         "-NoProfile",
         "-NonInteractive",

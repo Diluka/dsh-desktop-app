@@ -68,10 +68,12 @@ Deno.test("shell switches between separate remote and local mode panels", () => 
       "local-node-version",
       "local-dsh-version",
       "local-npx-version",
+      "local-powershell-version",
     ]
   ) {
     assertMatch(SHELL_HTML, new RegExp(`id="${id}"`, "u"));
   }
+  assertMatch(SHELL_HTML, /environment\.powershell\.pwshAvailable/u);
   assertMatch(SHELL_HTML, /state\.localEnvironment\.launcher === "npx"/u);
   assertMatch(SHELL_HTML, /npx -y @deepseek-ai\/dsh web --host 127\.0\.0\.1/u);
   assertMatch(SHELL_HTML, /dsh web --host 127\.0\.0\.1/u);

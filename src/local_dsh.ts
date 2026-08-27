@@ -7,6 +7,11 @@ import {
 } from "./hidden_process.ts";
 import { allocateLoopbackPort, probeHttp } from "./loopback_http.ts";
 import { ManagedEndpoint, type ManagedEndpointExit } from "./managed_endpoint.ts";
+import {
+  detectWindowsPowershell,
+  windowsPowershellCommand,
+  type WindowsPowershellStatus,
+} from "./windows_powershell.ts";
 
 const MAX_LOCAL_PORT_ATTEMPTS = 3;
 const COMMAND_PATH_TIMEOUT_MS = 10_000;
@@ -43,6 +48,7 @@ export interface LocalDshEnvironment {
   readonly node?: LocalToolInfo;
   readonly dsh?: LocalToolInfo;
   readonly npx?: LocalToolInfo;
+  readonly powershell?: WindowsPowershellStatus;
   readonly launcher?: LocalDshLauncher;
 }
 
@@ -141,10 +147,9 @@ function toolInfo(values: Record<string, string>, tool: string): LocalToolInfo |
 async function probeWindowsEnvironment(
   probe: (command: string, args: string[]) => Promise<CommandProbeOutput>,
 ): Promise<LocalDshEnvironment> {
-  // npm installs .ps1 shims on Windows, and PowerShell is built in, so only the
-  // .ps1 shim is probed — no cmd.exe/.cmd fallback. Launching the .ps1 through
-  // PowerShell keeps `node` a direct child so the job object and taskkill /t can
-  // terminate the whole tree.
+  // Prefer PowerShell 7 (pwsh) when installed; probe it first and cache the
+  // executable used for .ps1 shims.
+  const powershell = await detectWindowsPowershell(probe);
   const [nodeProbe, dshProbe, npxProbe] = await Promise.all([
     probeWindowsTool(["node"], probe),
     probeWindowsTool(["dsh.ps1"], probe),
@@ -158,7 +163,7 @@ async function probeWindowsEnvironment(
     : dshProbe.missing && npx
     ? { kind: "npx", command: npx.command, prefix: ["-y", NPX_DSH_PACKAGE] }
     : undefined;
-  return { node, dsh, npx, launcher };
+  return { node, dsh, npx, powershell, launcher };
 }
 
 async function probeWindowsTool(
@@ -189,7 +194,7 @@ async function resolveWindowsPs1Path(
   probe: (command: string, args: string[]) => Promise<CommandProbeOutput>,
 ): Promise<string | undefined> {
   try {
-    const output = await probe("powershell.exe", [
+    const output = await probe(windowsPowershellCommand(), [
       "-NoProfile",
       "-NonInteractive",
       "-Command",

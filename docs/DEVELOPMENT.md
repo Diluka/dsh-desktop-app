@@ -20,8 +20,9 @@ npx --version
 
 启动阶段不会执行 `npx -y @deepseek-ai/dsh --version`，也不会下载 DSH 包。Unix 平台使用用户默认 login
 shell 完成一次环境探测，并通过同一 login-shell 机制启动实际命令，以继承 mise、nvm 等版本管理器环境。
-Windows 使用系统自带的 PowerShell 执行 npm 生成的 `.ps1` shim（不依赖 cmd.exe）；`.ps1` 由
-`powershell.exe -File` 以绝对路径执行固定参数。
+Windows 使用 PowerShell 执行 npm 生成的 `.ps1` shim（不依赖 cmd.exe）；优先使用用户安装的
+`pwsh`（PowerShell 7），未安装时回退到系统自带的 `powershell.exe`（5.1），`.ps1` 由
+`-File` 以绝对路径执行固定参数。
 
 实际启动命令等价于：
 
