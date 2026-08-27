@@ -10,7 +10,7 @@ import {
   startLocalDshWeb,
 } from "./src/local_dsh.ts";
 import { createLogger } from "./src/logger.ts";
-import { openDirectory } from "./src/open_directory.ts";
+import { openDirectory, openExternalUrl } from "./src/open_directory.ts";
 import { ProfileStore, type ServerProfileInput } from "./src/profiles.ts";
 import { probeOpenSsh, SshTunnel, startSshTunnel, TunnelError } from "./src/ssh_tunnel.ts";
 import {
@@ -18,6 +18,7 @@ import {
   currentExecutablePath,
   downloadUpdate,
   startUpdateApplier,
+  UPDATE_RELEASE_URL,
 } from "./src/updater.ts";
 import { handleShellRequest } from "./src/ui.ts";
 import { setWindowsWindowIcon } from "./src/windows_window_icon.ts";
@@ -261,6 +262,19 @@ async function startDesktopWithShellServer(
       await restartToUpdate();
       return null;
     });
+    window.bind("openUpdateReleasePage", async () => {
+      try {
+        await openExternalUrl(UPDATE_RELEASE_URL);
+        logger.info({ event: "update.release_page_opened" }, "Opened the update release page");
+        return null;
+      } catch (error) {
+        logger.error(
+          { event: "update.release_page_open_failed", err: error },
+          "Failed to open the update release page",
+        );
+        throw updateError(error, "无法打开下载页面");
+      }
+    });
     window.bind("connectProfile", async (id: unknown) => {
       await connectProfile(id);
       return null;
@@ -288,6 +302,7 @@ async function startDesktopWithShellServer(
     window.unbind("checkForUpdate");
     window.unbind("downloadUpdate");
     window.unbind("restartToUpdate");
+    window.unbind("openUpdateReleasePage");
     window.unbind("connectProfile");
     window.unbind("connectLocal");
     window.unbind("cancelLocalStart");

@@ -58,8 +58,10 @@ open DSH-Desktop.app
 
 `latest` 是滚动发布：新的 `main` 提交只有在 Linux、Windows、macOS 四个测试任务和 Windows/macOS
 四个分发构建全部成功后，才会替换现有文件。Release 页面会记录来源提交和 GitHub Actions 运行链接。
-客户端使用 `target_commitish` 作为发布 commit id，仅当它与应用内的构建 commit id 不一致时提示更新。
-Pull Request 只运行测试，不发布产物；任何测试或打包失败都会保留上一版 Release。
+客户端使用 `target_commitish` 作为发布 commit id，仅当它与应用内的构建 commit id
+不一致时提示更新。自动更新开关默认关闭；关闭时启动后仍会检查，有新版本则提示用户打开 Release
+页面手动下载。开启后才下载匹配的发行包并在确认重启后自动替换。 Pull Request
+只运行测试，不发布产物；任何测试或打包失败都会保留上一版 Release。
 
 Linux 源码构建任务继续保留在仓库中，`latest` Release 当前不提供 Linux 预构建文件，因此 Linux
 不启用自动更新。

@@ -23,7 +23,7 @@ DSH Desktop 是 DSH Web 的跨平台桌面入口。它可以直接运行本机�
 - **原生桌面窗口**：Windows 提供 CEF 与 WebView2 两种版本，macOS 和 Linux 使用 CEF。
 - **持久化入口**：保存远程服务器、连接模式和最近使用的远程项目。
 - **自动更新**：Windows/macOS 发行包会比对 `latest` Release 的来源
-  commit，发现不同后下载对应架构和后端的新版包。
+  commit；开关默认关闭，只提示并打开下载页，开启后才下载并安装对应架构和后端的新版包。
 
 > [!IMPORTANT]
 > 项目基于实验性的 `deno desktop`。
