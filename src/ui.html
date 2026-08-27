@@ -805,6 +805,17 @@
       </form>
     </dialog>
 
+    <dialog id="update-confirmation" class="connecting-card confirmation" aria-modal="true"
+      aria-labelledby="update-confirmation-title" aria-describedby="update-confirmation-message">
+      <h3 id="update-confirmation-title"></h3>
+      <p id="update-confirmation-message"></p>
+      <form class="form-actions" method="dialog">
+        <button class="button secondary" type="submit" value="cancel" autofocus>取消</button>
+        <button id="update-confirmation-action" class="button primary" type="submit"
+          value="confirm"></button>
+      </form>
+    </dialog>
+
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
     <div id="connecting" class="connecting" role="dialog" aria-modal="true"
       aria-labelledby="connecting-title" hidden>
@@ -838,6 +849,10 @@
       var connecting = document.getElementById("connecting");
       var deleteConfirmation = document.getElementById("delete-confirmation");
       var deleteConfirmationMessage = document.getElementById("delete-confirmation-message");
+      var updateConfirmation = document.getElementById("update-confirmation");
+      var updateConfirmationTitle = document.getElementById("update-confirmation-title");
+      var updateConfirmationMessage = document.getElementById("update-confirmation-message");
+      var updateConfirmationAction = document.getElementById("update-confirmation-action");
       var toastTimer;
       var themeMedia = window.matchMedia("(prefers-color-scheme: dark)");
       var themeButtons = Array.from(document.querySelectorAll(".theme-option"));
@@ -919,6 +934,19 @@
         document.getElementById("update-status").textContent = message;
       }
 
+      function askAboutUpdate(title, message, action) {
+        updateConfirmationTitle.textContent = title;
+        updateConfirmationMessage.textContent = message;
+        updateConfirmationAction.textContent = action;
+        updateConfirmation.returnValue = "";
+        return new Promise(function (resolve) {
+          updateConfirmation.addEventListener("close", function () {
+            resolve(updateConfirmation.returnValue === "confirm");
+          }, { once: true });
+          updateConfirmation.showModal();
+        });
+      }
+
       async function checkForUpdate(automatic) {
         if (!state.updatesSupported) return;
         var button = document.getElementById("check-update");
@@ -932,7 +960,9 @@
             return;
           }
           renderUpdateStatus("发现新版本");
-          if (confirm("发现新版本，是否立即下载？")) await downloadUpdate();
+          if (await askAboutUpdate("发现新版本", "发现新版本，是否立即下载？", "下载更新")) {
+            await downloadUpdate();
+          }
         } catch (error) {
           renderUpdateStatus("检查失败");
           if (!automatic) showToast(errorMessage(error));
@@ -952,7 +982,7 @@
             return;
           }
           renderUpdateStatus("等待重启");
-          if (confirm("更新已下载完成。现在重启并安装更新？")) {
+          if (await askAboutUpdate("更新已下载", "更新已下载完成。现在重启并安装更新？", "重启更新")) {
             await globalThis.bindings.restartToUpdate();
           }
         } catch (error) {

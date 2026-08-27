@@ -22,6 +22,11 @@ Deno.test("shell renders Unicode delete confirmation in-page", () => {
   );
   assertMatch(SHELL_HTML, /<form class="form-actions" method="dialog">/u);
   assertMatch(SHELL_HTML, /deleteConfirmationMessage\.textContent =/u);
+  assertMatch(
+    SHELL_HTML,
+    /<dialog id="update-confirmation"[^>]+aria-modal="true"[^>]*>/u,
+  );
+  assertMatch(SHELL_HTML, /function askAboutUpdate\(/u);
 });
 
 Deno.test("handleShellRequest serves safe shell responses without local tunnel internals", async () => {
