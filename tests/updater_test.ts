@@ -163,7 +163,7 @@ Deno.test("startUpdateApplier launches an independent Windows process before shu
   });
   assertEquals(actualCommand, "cmd.exe");
   assertEquals(actualArgs.slice(0, 3), ["/d", "/s", "/c"]);
-  assertStringIncludes(actualArgs[3], "Wait-Process -Id 48");
+  assertStringIncludes(actualArgs[3], "Wait-Process -Id 48 -ErrorAction SilentlyContinue");
   assertEquals(actualOptions, { detached: true, stdio: "ignore", windowsHide: true });
   assertEquals(unreferenced, true);
 });
@@ -175,10 +175,24 @@ Deno.test("Windows apply command stages, swaps, restarts, then cleans up", () =>
     WINDOWS_ASSET,
     48,
   );
-  assertStringIncludes(command, "Wait-Process -Id 48");
+  assertStringIncludes(command, "Wait-Process -Id 48 -ErrorAction SilentlyContinue");
+  assertStringIncludes(command, 'if exist "C:\\Apps\\.DSH-Desktop-CEF.update-staging"');
   assertStringIncludes(command, "tar -xf");
   assertStringIncludes(command, 'move "C:\\Apps\\DSH-Desktop-CEF"');
   assertStringIncludes(command, 'start "" "C:\\Apps\\DSH-Desktop-CEF\\DSH-Desktop.exe"');
+});
+
+Deno.test("Windows apply command rejects cmd-expanded paths", () => {
+  assertThrows(
+    () =>
+      windowsApplyCommand(
+        "C:\\Apps\\%USERPROFILE%\\DSH-Desktop.exe",
+        "C:\\Users\\Alice\\AppData\\Local\\dsh-desktop\\updates",
+        WINDOWS_ASSET,
+      ),
+    Error,
+    "百分号",
+  );
 });
 
 Deno.test("macOS apply command waits for shutdown, replaces the bundle, and relaunches it", () => {
@@ -188,7 +202,7 @@ Deno.test("macOS apply command waits for shutdown, replaces the bundle, and rela
     "DSH-Desktop-macos-aarch64.tar.gz",
     48,
   );
-  assertStringIncludes(command, "while kill -0 48");
+  assertStringIncludes(command, "set -e; while kill -0 48");
   assertStringIncludes(command, "tar -xzf");
   assertStringIncludes(command, "mv '/Applications/DSH-Desktop.app'");
   assertStringIncludes(command, "open '/Applications/DSH-Desktop.app'");
