@@ -1,8 +1,7 @@
 # Windows / Linux / macOS GUI 验证
 
-本文用于验证首版远程模式。无头 CI
-负责格式、lint、类型、单测和打包；本页覆盖必须在真实桌面环境观察的窗口、CEF/WebView2、OpenSSH 与 DSH
-Web 行为。
+本文用于验证本地与远程模式。无头 CI 负责格式、lint、类型、单测和打包；本页覆盖必须在真实桌面环境
+观察的窗口、CEF/WebView2、OpenSSH、npx 与 DSH Web 行为。
 
 ## 准备
 
@@ -56,7 +55,7 @@ deno task build:windows
 
 分别复制完整的 `dist/windows/DSH-Desktop-CEF/` 与 `dist/windows/DSH-Desktop-WebView/` 目录，运行
 其中同名 EXE。执行 `deno task package:windows` 会生成 `DSH-Desktop-windows-x86_64-cef.zip` 和
-`DSH-Desktop-windows-x86_64-webview.zip`；完整解压后再运行， 不能只复制 EXE。Windows
+`DSH-Desktop-windows-x86_64-webview.zip`；完整解压后再运行，不能只复制 EXE。Windows
 两个版本都需覆盖本节场景；WebView2 版本还需确认系统 Runtime 可用。
 
 实时查看日志：
@@ -163,7 +162,7 @@ tail -f "$(ls -t "$log_dir"/dsh-desktop-*.jsonl | head -n 1)"
 ### 8. 打开日志目录
 
 在服务器选择页点击“打开目录”，确认 Windows Explorer、macOS Finder 或 Linux
-默认文件管理器打开当前日志目录。 命令成功交给系统时日志包含 `logs.directory_open_requested`。Linux
+默认文件管理器打开当前日志目录。命令成功交给系统时日志包含 `logs.directory_open_requested`。Linux
 缺少 `xdg-open` 或系统命令失败时，页面必须弹窗提示且日志包含 `logs.directory_open_failed`。
 
 ### 9. Windows 隐藏 OpenSSH 窗口
