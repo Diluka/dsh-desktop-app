@@ -1296,14 +1296,21 @@
 
       async function connectLocal() {
         localCancelRequested = false;
+        var usesNpx = state.localEnvironment.launcher === "npx";
         showConnecting(
-          "正在启动本地模式",
-          "优先启动 dsh；缺失时本次操作才会使用 npx，首次下载可能超过 30 分钟且不会自动超时。",
-          [
-            "优先启动本机 dsh",
-            "点击启动后才允许 npx 下载并运行 DSH",
-            "等待期间可随时点击“终止启动”",
-          ],
+          usesNpx ? "正在通过 npx 启动" : "正在通过 dsh 启动",
+          usesNpx ? "当前方案：npx -y @deepseek-ai/dsh web" : "当前方案：dsh web",
+          usesNpx
+            ? [
+              "执行 npx -y @deepseek-ai/dsh web --host 127.0.0.1 --port <自动分配> --no-open",
+              "首次下载可能超过 30 分钟；不会自动超时",
+              "等待期间可随时点击“终止启动”",
+            ]
+            : [
+              "执行 dsh web --host 127.0.0.1 --port <自动分配> --no-open",
+              "使用已检测到的 dsh CLI，不下载额外包",
+              "等待期间可随时点击“终止启动”",
+            ],
           true,
         );
         try {
