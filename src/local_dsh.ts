@@ -31,6 +31,29 @@ export interface LocalDshLauncher {
   readonly prefix: readonly string[];
 }
 
+export interface LocalToolInfo {
+  readonly command: string;
+  readonly version: string;
+}
+
+export interface LocalDshEnvironment {
+  readonly node?: LocalToolInfo;
+  readonly dsh?: LocalToolInfo;
+  readonly npx?: LocalToolInfo;
+  readonly launcher?: LocalDshLauncher;
+}
+
+interface CommandProbeOutput {
+  readonly success: boolean;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+interface LocalToolProbeResult {
+  readonly info?: LocalToolInfo;
+  readonly missing: boolean;
+}
+
 interface StartLocalDshOptions {
   readonly allocatePort?: () => Promise<number>;
   readonly spawn: (command: string, args: string[]) => ManagedHiddenProcess;
@@ -98,38 +121,81 @@ export function buildDshWebArguments(port: number): string[] {
   return ["web", "--host", "127.0.0.1", "--port", String(port), "--no-open"];
 }
 
-export async function probeLocalDshLauncher(
-  probe: (command: string, args: string[]) => Promise<unknown> = (command, args) =>
+export async function probeLocalDshEnvironment(
+  probe: (command: string, args: string[]) => Promise<CommandProbeOutput> = (command, args) =>
     runHiddenCommand(command, args, COMMAND_PROBE_TIMEOUT_MS),
   os: typeof Deno.build.os = Deno.build.os,
   resolveFromShell: (command: string) => Promise<string | undefined> = (command) =>
-    resolveFromLoginShell(command, os),
-): Promise<LocalDshLauncher | undefined> {
-  const extension = os === "windows" ? ".cmd" : "";
-  const launchers: LocalDshLauncher[] = [
-    { kind: "dsh", command: `dsh${extension}`, prefix: [] },
-    { kind: "npx", command: `npx${extension}`, prefix: ["-y", NPX_DSH_PACKAGE] },
-  ];
-
-  for (const launcher of launchers) {
-    try {
-      await probe(launcher.command, ["--version"]);
-      return launcher;
-    } catch (error) {
-      if (!isCommandNotFoundError(error)) return launcher;
-    }
-
-    const resolved = await resolveFromShell(launcher.command).catch(() => undefined);
-    if (resolved) return { ...launcher, command: resolved };
-  }
-  return undefined;
+    resolveCommandPath(command, os),
+): Promise<LocalDshEnvironment> {
+  const commandExtension = os === "windows" ? ".cmd" : "";
+  const [nodeProbe, dshProbe, npxProbe] = await Promise.all([
+    probeLocalTool("node", probe, resolveFromShell, true),
+    probeLocalTool(`dsh${commandExtension}`, probe, resolveFromShell),
+    probeLocalTool(`npx${commandExtension}`, probe, resolveFromShell),
+  ]);
+  const node = nodeProbe.info;
+  const dsh = dshProbe.info;
+  const npx = npxProbe.info;
+  const launcher: LocalDshLauncher | undefined = dsh
+    ? { kind: "dsh", command: dsh.command, prefix: [] }
+    : dshProbe.missing && node && npx
+    ? { kind: "npx", command: npx.command, prefix: ["-y", NPX_DSH_PACKAGE] }
+    : undefined;
+  return { node, dsh, npx, launcher };
 }
 
-async function resolveFromLoginShell(
+async function probeLocalTool(
+  initialCommand: string,
+  probe: (command: string, args: string[]) => Promise<CommandProbeOutput>,
+  resolveFromShell: (command: string) => Promise<string | undefined>,
+  resolveBeforeProbe = false,
+): Promise<LocalToolProbeResult> {
+  let command = initialCommand;
+  if (resolveBeforeProbe) {
+    const resolved = await resolveFromShell(command).catch(() => undefined);
+    if (!resolved) return { missing: true };
+    command = resolved;
+  }
+  let output: CommandProbeOutput;
+  try {
+    output = await probe(command, ["--version"]);
+  } catch (error) {
+    if (!isCommandNotFoundError(error)) return { missing: false };
+    if (resolveBeforeProbe) return { missing: true };
+    const resolved = await resolveFromShell(command).catch(() => undefined);
+    if (!resolved) return { missing: true };
+    command = resolved;
+    try {
+      output = await probe(command, ["--version"]);
+    } catch (resolvedError) {
+      return { missing: isCommandNotFoundError(resolvedError) };
+    }
+  }
+  if (!output.success) return { missing: false };
+  const version = [output.stdout, output.stderr]
+    .map((text) => text.split(/\r?\n/u).map((line) => line.trim()).findLast(Boolean))
+    .find(Boolean);
+  return version ? { info: { command, version }, missing: false } : { missing: false };
+}
+
+async function resolveCommandPath(
   command: string,
   os: typeof Deno.build.os,
 ): Promise<string | undefined> {
-  if (os === "windows" || !/^[a-z0-9._-]+$/iu.test(command)) return undefined;
+  if (!/^[a-z0-9._-]+$/iu.test(command)) return undefined;
+  if (os === "windows") {
+    try {
+      const result = await runHiddenCommand("where.exe", [command], COMMAND_PROBE_TIMEOUT_MS);
+      if (!result.success) return undefined;
+      return result.stdout
+        .split(/\r?\n/u)
+        .map((line) => line.trim())
+        .find((line) => /^[a-z]:[\\/]/iu.test(line));
+    } catch {
+      return undefined;
+    }
+  }
   const shell = Deno.env.get("SHELL") ?? (os === "darwin" ? "/bin/zsh" : "/bin/sh");
 
   try {

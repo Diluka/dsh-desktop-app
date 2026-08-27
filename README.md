@@ -2,9 +2,9 @@
 
 [![CI](https://github.com/Diluka/dsh-desktop-app/actions/workflows/ci.yml/badge.svg)](https://github.com/Diluka/dsh-desktop-app/actions/workflows/ci.yml)
 
-DSH 的 Windows、Linux 与 macOS 桌面入口。本地模式优先启动 PATH 中的 `dsh web`，命令缺失时回退到
-`npx -y @deepseek-ai/dsh`；远程模式调用本机 OpenSSH Client 建立本地端口转发，再打开远端 DSH Web。
-Windows 同时提供内置 Chromium（CEF）与系统 WebView2 两种版本；Linux 和 macOS 使用 CEF。
+DSH 的 Windows、Linux 与 macOS 桌面入口。用户启动本地模式时优先运行 PATH 中的 `dsh web`，命令
+缺失时回退到 `npx -y @deepseek-ai/dsh`；远程模式调用本机 OpenSSH Client 建立本地端口转发，再打开远端
+DSH Web。 Windows 同时提供内置 Chromium（CEF）与系统 WebView2 两种版本；Linux 和 macOS 使用 CEF。
 
 > [!IMPORTANT]
 > `deno desktop` 从 Deno 2.9 开始提供，目前仍标记为 experimental。CEF 版本自带 Chromium、体积较大；
@@ -33,8 +33,10 @@ Windows 同时提供内置 Chromium（CEF）与系统 WebView2 两种版本；Li
 - 本地模式需要终端中可用的 DSH CLI（`dsh --version`），或可运行 npx 的 Node.js/npm
 - 远程模式需要 PATH 中可用的 OpenSSH Client（`ssh -V`），且远端机器已启动 DSH Web
 
-未找到 `dsh` 时，应用自动执行 `npx -y @deepseek-ai/dsh`。macOS/Linux 桌面启动时还会通过用户登录
-shell 解析命令路径，兼容由 shell profile 提供 PATH 的 Node 版本管理器。首次下载耗时可能超过 30
+应用启动阶段只执行 `node --version`、`dsh --version` 和 `npx --version`，不会通过 npx 下载或运行
+DSH。 macOS/Linux 还会通过用户登录 shell 解析命令路径，兼容由 shell profile 提供 PATH 的 Node
+版本管理器。 只有用户点击启动且未找到 `dsh` 时，应用才执行
+`npx -y @deepseek-ai/dsh`。首次下载耗时可能超过 30
 分钟；本地启动不设置超时，可在等待弹窗中点击“终止启动”。
 
 Windows 缺少 `ssh` 时，可在“设置 → 系统 → 可选功能”中安装 **OpenSSH 客户端**。Debian/Ubuntu 可执行：

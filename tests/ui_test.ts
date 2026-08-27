@@ -29,18 +29,36 @@ Deno.test("shell waits for backend bindings before enabling actions", () => {
   assertMatch(SHELL_HTML, /<button id="add-server"[^>]*disabled>/u);
   assertMatch(SHELL_HTML, /<button id="open-log-directory"[^>]*disabled>/u);
   assertMatch(SHELL_HTML, /No binding for 'bootstrap'/u);
-  assertMatch(SHELL_HTML, /getElementById\("start-local"\)\.disabled = false/u);
+  assertMatch(SHELL_HTML, /state\.ready = true/u);
+  assertMatch(SHELL_HTML, /function applyBootstrapData\(data\)/u);
+  assertEquals([...SHELL_HTML.matchAll(/applyBootstrapData\(data\);/gu)].length, 2);
+  assertMatch(
+    SHELL_HTML,
+    /getElementById\("start-local"\)\.disabled = !environment\.canStart/u,
+  );
   assertMatch(SHELL_HTML, /getElementById\("add-server"\)\.disabled = false/u);
   assertMatch(SHELL_HTML, /getElementById\("open-log-directory"\)\.disabled = false/u);
 });
 
-Deno.test("shell keeps the remote card and adds a local card", () => {
-  assertEquals([...SHELL_HTML.matchAll(/class="masthead-copy"/gu)].length, 2);
-  assertMatch(
-    SHELL_HTML,
-    /<h1>远程模式<\/h1>\s*<p>通过本机 OpenSSH 连接远程 DSH Web。<\/p>/u,
-  );
-  assertMatch(SHELL_HTML, /<h1>本地模式<\/h1>\s*<p>直接启动本机 dsh web。<\/p>/u);
+Deno.test("shell switches between separate remote and local mode panels", () => {
+  assertEquals([...SHELL_HTML.matchAll(/class="mode-option"/gu)].length, 2);
+  assertMatch(SHELL_HTML, /id="mode-remote"[^>]+aria-pressed="true"/u);
+  assertMatch(SHELL_HTML, /id="mode-local"[^>]+aria-pressed="false"/u);
+  assertMatch(SHELL_HTML, /id="remote-mode-panel"[^>]*>/u);
+  assertMatch(SHELL_HTML, /id="local-mode-panel"[^>]+hidden/u);
+  assertMatch(SHELL_HTML, /<h2 id="remote-mode-title">选择服务器<\/h2>/u);
+  assertMatch(SHELL_HTML, /<h2 id="local-mode-title">本地模式<\/h2>/u);
+  assertMatch(SHELL_HTML, /function setMode\(mode\)/u);
+  for (
+    const id of [
+      "local-platform",
+      "local-node-version",
+      "local-dsh-version",
+      "local-npx-version",
+    ]
+  ) {
+    assertMatch(SHELL_HTML, new RegExp(`id="${id}"`, "u"));
+  }
 });
 
 Deno.test("shell renders Unicode delete confirmation in-page", () => {

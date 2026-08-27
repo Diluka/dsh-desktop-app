@@ -162,28 +162,42 @@
       margin-top: 34px;
     }
 
-    .masthead-copy {
+    .mode-option {
+      width: 100%;
       padding: 12px;
+      border: 1px solid transparent;
       border-radius: 12px;
+      color: var(--text);
+      text-align: left;
       background: var(--surface-selected);
+      transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+    }
+    .mode-option:hover {
+      border-color: var(--border-hover);
+      background: var(--surface-hover);
+    }
+    .mode-option[aria-pressed="true"] {
+      border-color: var(--brand);
+      background: var(--surface);
+      box-shadow: inset 3px 0 0 var(--brand), var(--shadow-card);
     }
 
     .mode-label {
+      display: block;
       margin: 0 0 3px;
       color: var(--text-tertiary);
       font-size: 12px;
       line-height: 18px;
     }
-
-    h1 {
-      margin: 0;
+    .mode-title {
+      display: block;
       font-size: 14px;
-      font-weight: 500;
+      font-weight: 600;
       line-height: 22px;
     }
-
-    .masthead-copy > p:last-child {
-      margin: 3px 0 0;
+    .mode-description {
+      display: block;
+      margin-top: 3px;
       color: var(--text-secondary);
       font-size: 12px;
       line-height: 18px;
@@ -345,6 +359,67 @@
       margin-bottom: 2px;
       font-weight: 600;
     }
+
+    .local-environment {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1px;
+      margin-bottom: 16px;
+      padding: 1px;
+      border-radius: 16px;
+      overflow: hidden;
+      background: var(--border);
+    }
+    .environment-item {
+      min-width: 0;
+      padding: 16px 18px;
+      background: var(--surface);
+    }
+    .environment-item span {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--text-tertiary);
+      font-size: 12px;
+      line-height: 18px;
+    }
+    .environment-item strong {
+      display: block;
+      overflow-wrap: anywhere;
+      font-family: "SF Mono", "JetBrains Mono", "Fira Code", Consolas, monospace;
+      font-size: 13px;
+      font-weight: 500;
+      line-height: 20px;
+    }
+    .environment-item strong.unavailable {
+      color: var(--danger);
+      font-family: inherit;
+    }
+
+    .local-start-card {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 28px;
+      padding: 24px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: var(--surface);
+      box-shadow: var(--shadow-card);
+    }
+    .local-start-card h3 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+      line-height: 26px;
+    }
+    .local-start-card p {
+      max-width: 54ch;
+      margin: 6px 0 0;
+      color: var(--text-secondary);
+      font-size: 14px;
+      line-height: 22px;
+    }
+
     .summary-line {
       display: flex;
       align-items: center;
@@ -654,7 +729,7 @@
         border-right: 0;
         border-bottom: 1px solid var(--border);
       }
-      .masthead-copy {
+      .masthead-modes {
         margin-top: 18px;
       }
       .masthead-footer {
@@ -683,8 +758,13 @@
       .header-actions .button {
         flex: 1 1 100%;
       }
+      .local-environment,
+      .local-start-card,
       .server-card {
         grid-template-columns: 1fr;
+      }
+      .local-start-card .button {
+        width: 100%;
       }
       .server-actions {
         justify-content: flex-start;
@@ -715,17 +795,19 @@
       <aside class="masthead">
         <div>
           <div class="brand-mark">deepseek</div>
-          <div class="masthead-modes">
-            <div class="masthead-copy">
-              <p class="mode-label">连接方式</p>
-              <h1>远程模式</h1>
-              <p>通过本机 OpenSSH 连接远程 DSH Web。</p>
-            </div>
-            <div class="masthead-copy">
-              <p class="mode-label">连接方式</p>
-              <h1>本地模式</h1>
-              <p>直接启动本机 dsh web。</p>
-            </div>
+          <div class="masthead-modes" role="group" aria-label="连接方式">
+            <button id="mode-remote" class="mode-option" type="button" data-mode="remote"
+              aria-controls="remote-mode-panel" aria-pressed="true">
+              <span class="mode-label">连接方式</span>
+              <span class="mode-title">远程模式</span>
+              <span class="mode-description">通过本机 OpenSSH 连接远程 DSH Web。</span>
+            </button>
+            <button id="mode-local" class="mode-option" type="button" data-mode="local"
+              aria-controls="local-mode-panel" aria-pressed="false">
+              <span class="mode-label">连接方式</span>
+              <span class="mode-title">本地模式</span>
+              <span class="mode-description">直接启动本机 dsh web。</span>
+            </button>
           </div>
         </div>
         <div class="masthead-footer">
@@ -741,74 +823,113 @@
           <div class="runtime-note">
             <div
               class="runtime-row"><span>浏览器</span><strong id="browser-backend">Chromium / CEF</strong></div>
-            <div class="runtime-row"><span>连接</span><strong>dsh / OpenSSH</strong></div>
+            <div
+              class="runtime-row"><span>连接</span><strong id="connection-backend">OpenSSH</strong></div>
           </div>
         </div>
       </aside>
 
       <main class="workspace">
         <div class="workspace-inner">
-          <header class="workspace-header">
-            <div>
-              <h2>选择连接方式</h2>
-              <p class="page-description">本地启动 dsh web，或通过 SSH Host 建立远程连接。</p>
-            </div>
-            <div class="header-actions">
-              <button id="start-local" class="button secondary" type="button"
-                disabled>本地模式</button>
-              <button id="add-server" class="button primary" type="button"
-                disabled>添加服务器</button>
-            </div>
-          </header>
-
           <div id="notice" class="notice" role="alert" hidden></div>
-          <div class="summary-line">
-            <span id="server-count">正在读取配置...</span>
-            <span id="ssh-status"
-              class="status"><span class="status-dot"></span><span>检测 OpenSSH</span></span>
-          </div>
 
-          <section id="server-list" class="server-list" aria-live="polite"></section>
-          <section id="empty-state" class="empty-state" hidden>
-            <strong>还没有服务器</strong>
-            <p>添加一个 <code>~/.ssh/config</code> 中的 Host。用户、端口、密钥和跳板机继续由 OpenSSH 管理。</p>
-            <button id="empty-add" class="button primary" type="button">添加服务器</button>
+          <section id="remote-mode-panel" class="mode-panel" aria-labelledby="remote-mode-title">
+            <header class="workspace-header">
+              <div>
+                <h2 id="remote-mode-title">选择服务器</h2>
+                <p class="page-description">通过 SSH Host 建立安全连接。</p>
+              </div>
+              <div class="header-actions">
+                <button id="add-server" class="button primary" type="button"
+                  disabled>添加服务器</button>
+              </div>
+            </header>
+
+            <div class="summary-line">
+              <span id="server-count">正在读取配置...</span>
+              <span id="ssh-status"
+                class="status"><span class="status-dot"></span><span>检测 OpenSSH</span></span>
+            </div>
+
+            <section id="server-list" class="server-list" aria-live="polite"></section>
+            <section id="empty-state" class="empty-state" hidden>
+              <strong>还没有服务器</strong>
+              <p>添加一个 <code>~/.ssh/config</code> 中的 Host。用户、端口、密钥和跳板机继续由 OpenSSH 管理。</p>
+              <button id="empty-add" class="button primary" type="button">添加服务器</button>
+            </section>
+
+            <section id="editor" class="editor" aria-labelledby="editor-title" hidden>
+              <div class="editor-header">
+                <div>
+                  <h3 id="editor-title">添加服务器</h3>
+                  <p class="section-description">保存 DSH 显示名称、SSH Host 和远端 Web 端口。</p>
+                </div>
+                <button id="close-editor" class="text-button" type="button">关闭</button>
+              </div>
+              <form id="server-form">
+                <div class="form-grid">
+                  <div class="field">
+                    <label for="server-name">显示名称</label>
+                    <input id="server-name" name="name" maxlength="80" placeholder="生产环境"
+                      autocomplete="off">
+                    <small>可留空，默认使用 SSH Host。</small>
+                  </div>
+                  <div class="field">
+                    <label for="ssh-target">SSH Host / 别名</label>
+                    <input id="ssh-target" name="sshTarget" required maxlength="255"
+                      placeholder="prod-dsh" autocomplete="off" spellcheck="false">
+                    <small>直接交给本机 <code>ssh</code>，并读取 <code>~/.ssh/config</code>。</small>
+                  </div>
+                  <div class="field">
+                    <label for="remote-port">DSH Web 端口</label>
+                    <input id="remote-port" name="remotePort" type="number" required min="1"
+                      max="65535" value="3080" inputmode="numeric">
+                    <small>默认端口为 <code>3080</code>。</small>
+                  </div>
+                </div>
+                <div class="form-actions">
+                  <button id="cancel-editor" class="button secondary" type="button">取消</button>
+                  <button class="button primary" type="submit">保存</button>
+                </div>
+              </form>
+            </section>
           </section>
 
-          <section id="editor" class="editor" aria-labelledby="editor-title" hidden>
-            <div class="editor-header">
+          <section id="local-mode-panel" class="mode-panel" aria-labelledby="local-mode-title"
+            hidden>
+            <header class="workspace-header">
               <div>
-                <h3 id="editor-title">添加服务器</h3>
-                <p class="section-description">保存 DSH 显示名称、SSH Host 和远端 Web 端口。</p>
+                <h2 id="local-mode-title">本地模式</h2>
+                <p class="page-description">在此设备上启动 DSH Web。</p>
               </div>
-              <button id="close-editor" class="text-button" type="button">关闭</button>
+            </header>
+            <div class="local-environment" aria-label="本地环境">
+              <div class="environment-item">
+                <span>平台</span>
+                <strong id="local-platform">正在检测...</strong>
+              </div>
+              <div class="environment-item">
+                <span>Node.js</span>
+                <strong id="local-node-version">正在检测...</strong>
+              </div>
+              <div class="environment-item">
+                <span>DSH CLI</span>
+                <strong id="local-dsh-version">正在检测...</strong>
+              </div>
+              <div class="environment-item">
+                <span>npx</span>
+                <strong id="local-npx-version">正在检测...</strong>
+              </div>
             </div>
-            <form id="server-form">
-              <div class="form-grid">
-                <div class="field">
-                  <label for="server-name">显示名称</label>
-                  <input id="server-name" name="name" maxlength="80" placeholder="生产环境"
-                    autocomplete="off">
-                  <small>可留空，默认使用 SSH Host。</small>
-                </div>
-                <div class="field">
-                  <label for="ssh-target">SSH Host / 别名</label>
-                  <input id="ssh-target" name="sshTarget" required maxlength="255"
-                    placeholder="prod-dsh" autocomplete="off" spellcheck="false">
-                  <small>直接交给本机 <code>ssh</code>，并读取 <code>~/.ssh/config</code>。</small>
-                </div>
-                <div class="field">
-                  <label for="remote-port">DSH Web 端口</label>
-                  <input id="remote-port" name="remotePort" type="number" required min="1"
-                    max="65535" value="3080" inputmode="numeric">
-                  <small>默认端口为 <code>3080</code>。</small>
-                </div>
+            <div class="local-start-card">
+              <div>
+                <span class="mode-label">本机服务</span>
+                <h3>启动 DSH Web</h3>
+                <p id="local-start-description">正在检测本地启动条件...</p>
               </div>
-              <div class="form-actions">
-                <button id="cancel-editor" class="button secondary" type="button">取消</button>
-                <button class="button primary" type="submit">保存</button>
-              </div>
-            </form>
+              <button id="start-local" class="button primary" type="button"
+                disabled>启动本地 DSH</button>
+            </div>
           </section>
 
           <footer class="diagnostics">
@@ -817,7 +938,8 @@
               <button id="open-log-directory" class="text-button" type="button"
                 disabled>打开目录</button>
             </div>
-            <div>认证使用 <code>.ssh/config</code>、密钥或 <code>ssh-agent</code>；应用不处理密码。</div>
+            <div
+              id="diagnostic-note">认证使用 <code>.ssh/config</code>、密钥或 <code>ssh-agent</code>；应用不处理密码。</div>
           </footer>
         </div>
       </main>
@@ -860,7 +982,19 @@
     (function () {
       "use strict";
 
-      var state = { profiles: [], ssh: { available: false }, editingId: null };
+      var state = {
+        profiles: [],
+        ssh: { available: false },
+        localEnvironment: { canStart: false },
+        editingId: null,
+        mode: "remote",
+        ready: false,
+      };
+      var modeButtons = Array.from(document.querySelectorAll(".mode-option"));
+      var remoteModePanel = document.getElementById("remote-mode-panel");
+      var localModePanel = document.getElementById("local-mode-panel");
+      var connectionBackend = document.getElementById("connection-backend");
+      var diagnosticNote = document.getElementById("diagnostic-note");
       var list = document.getElementById("server-list");
       var empty = document.getElementById("empty-state");
       var editor = document.getElementById("editor");
@@ -887,6 +1021,11 @@
       });
       applyTheme(themePreference, false);
 
+      modeButtons.forEach(function (button) {
+        button.addEventListener("click", function () {
+          setMode(button.dataset.mode);
+        });
+      });
       document.getElementById("start-local").addEventListener("click", connectLocal);
       cancelLocalButton.addEventListener("click", cancelLocalStart);
       document.getElementById("add-server").addEventListener("click", function () {
@@ -922,6 +1061,25 @@
         }
       }
 
+      function setMode(mode) {
+        var local = mode === "local";
+        state.mode = local ? "local" : "remote";
+        modeButtons.forEach(function (button) {
+          button.setAttribute("aria-pressed", String(button.dataset.mode === state.mode));
+        });
+        remoteModePanel.hidden = local;
+        localModePanel.hidden = !local;
+        connectionBackend.textContent = local ? "dsh / npx" : "OpenSSH";
+        diagnosticNote.textContent = local
+          ? "本地模式优先使用 dsh；不可用时通过 npx 启动。"
+          : "认证使用 .ssh/config、密钥或 ssh-agent；应用不处理密码。";
+        if (!state.ready) return;
+        notice.hidden = true;
+        if (!local && !state.ssh.available) {
+          showNotice(state.ssh.installHelp || "未找到 OpenSSH Client，请安装后重启应用。");
+        }
+      }
+
       async function bootstrap() {
         try {
           if (!globalThis.bindings || typeof globalThis.bindings.bootstrap !== "function") {
@@ -929,17 +1087,9 @@
             return;
           }
           var data = await globalThis.bindings.bootstrap();
-          state.profiles = data.profiles;
-          state.ssh = data.ssh;
-          document.getElementById("start-local").disabled = false;
-          document.getElementById("add-server").disabled = false;
-          document.getElementById("open-log-directory").disabled = false;
-          document.getElementById("log-directory").textContent = data.logDirectory;
-          document.getElementById("browser-backend").textContent = data.browserBackend;
-          renderSshStatus();
-          renderProfiles();
+          applyBootstrapData(data);
           if (data.startupNotice) showNotice(data.startupNotice);
-          if (!state.profiles.length) openEditor();
+          if (state.mode === "remote" && !state.profiles.length) openEditor();
         } catch (error) {
           var detail = errorMessage(error);
           if (detail.indexOf("No binding for 'bootstrap'") !== -1) {
@@ -951,6 +1101,20 @@
         }
       }
 
+      function applyBootstrapData(data) {
+        state.profiles = data.profiles;
+        state.ssh = data.ssh;
+        state.localEnvironment = data.localEnvironment;
+        state.ready = true;
+        document.getElementById("add-server").disabled = false;
+        document.getElementById("open-log-directory").disabled = false;
+        document.getElementById("log-directory").textContent = data.logDirectory;
+        document.getElementById("browser-backend").textContent = data.browserBackend;
+        renderSshStatus();
+        renderLocalEnvironment();
+        renderProfiles();
+      }
+
       function renderSshStatus() {
         var element = document.getElementById("ssh-status");
         var version = state.ssh.version || "";
@@ -958,9 +1122,29 @@
         element.lastElementChild.textContent = state.ssh.available
           ? version.indexOf("OpenSSH") === 0 ? version : "OpenSSH " + (version || "可用")
           : "OpenSSH 未安装";
-        if (!state.ssh.available) {
+        if (!state.ssh.available && state.mode === "remote") {
           showNotice(state.ssh.installHelp || "未找到 OpenSSH Client，请安装后重启应用。");
         }
+      }
+
+      function renderLocalEnvironment() {
+        var environment = state.localEnvironment;
+        setEnvironmentValue("local-platform", environment.platform);
+        setEnvironmentValue("local-node-version", environment.nodeVersion);
+        setEnvironmentValue("local-dsh-version", environment.dshVersion);
+        setEnvironmentValue("local-npx-version", environment.npxVersion);
+        document.getElementById("start-local").disabled = !environment.canStart;
+        document.getElementById("local-start-description").textContent = environment.launcher === "dsh"
+          ? "将使用已安装的 dsh CLI 启动，不会下载额外包。"
+          : environment.launcher === "npx"
+          ? "未找到 dsh；点击后才会通过 npx 下载并启动 DSH。"
+          : "需要可用的 dsh，或 Node.js 与 npx，才能启动本地模式。";
+      }
+
+      function setEnvironmentValue(id, value) {
+        var element = document.getElementById(id);
+        element.textContent = value || "不可用";
+        element.classList.toggle("unavailable", !value);
       }
 
       function renderProfiles() {
@@ -1060,9 +1244,8 @@
             remotePort: Number(form.elements.remotePort.value),
           });
           var data = await globalThis.bindings.bootstrap();
-          state.profiles = data.profiles;
+          applyBootstrapData(data);
           closeEditor();
-          renderProfiles();
           showToast("服务器配置已保存");
         } catch (error) {
           showToast(errorMessage(error));
@@ -1115,10 +1298,10 @@
         localCancelRequested = false;
         showConnecting(
           "正在启动本地模式",
-          "优先启动 dsh；缺失时使用 npx，首次下载可能超过 30 分钟且不会自动超时。",
+          "优先启动 dsh；缺失时本次操作才会使用 npx，首次下载可能超过 30 分钟且不会自动超时。",
           [
             "优先启动本机 dsh",
-            "缺失时通过 npx 下载并启动",
+            "点击启动后才允许 npx 下载并运行 DSH",
             "等待期间可随时点击“终止启动”",
           ],
           true,

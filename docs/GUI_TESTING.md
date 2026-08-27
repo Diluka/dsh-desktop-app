@@ -175,7 +175,8 @@ tail -f "$(ls -t "$log_dir"/dsh-desktop-*.jsonl | head -n 1)"
 
 ### 10. Windows 隐藏 OpenSSH 窗口
 
-在 Windows 上分别观察应用启动时的 `ssh -V` 探测、点击“连接”后的长连接，以及本地模式的 npx fallback。
+在 Windows 上分别观察应用启动时的 `ssh -V` 探测、点击“连接”后的长连接，以及点击本地启动后的 npx
+fallback。
 
 预期全程不出现可见的 `cmd.exe`/控制台闪窗；连接、错误提示、日志和关闭时的子进程清理行为保持不变。
 
@@ -187,15 +188,18 @@ tail -f "$(ls -t "$log_dir"/dsh-desktop-*.jsonl | head -n 1)"
 
 ### 12. 本地模式、npx 回退与终止
 
-1. PATH 中存在 `dsh` 时点击“本地模式”，确认直接加载本地 DSH Web。
-2. 在隔离测试环境中隐藏 `dsh`、保留 npx，再次点击“本地模式”。
-3. 确认等待弹窗提示首次下载可能超过 30 分钟、不自动超时，并显示“终止启动”按钮。
-4. 在 npx 仍运行时点击“终止启动”，确认弹窗关闭、页面提示已终止，且不残留 `npx`/DSH 子进程。
-5. 再次启动并允许 npx 完成，确认同一窗口加载 DSH Web。
-6. 同时隐藏 `dsh` 和 npx，确认最终才显示 DSH CLI 安装提示。
+1. 打开“本地模式”，确认页面显示平台、Node.js、DSH CLI 和 npx 版本；条件不足时启动按钮禁用。
+2. 检查应用启动阶段的进程与网络，确认只执行各工具自身的 `--version`，不会执行
+   `npx -y @deepseek-ai/dsh --version` 或下载 DSH 包。
+3. PATH 中存在 `dsh` 时点击“启动本地 DSH”，确认直接加载本地 DSH Web。
+4. 在隔离测试环境中隐藏 `dsh`、保留 Node.js 和 npx，再次点击“启动本地 DSH”。
+5. 确认此时才开始 npx 下载；等待弹窗提示首次下载可能超过 30 分钟、不自动超时，并显示“终止启动”按钮。
+6. 在 npx 仍运行时点击“终止启动”，确认弹窗关闭、页面提示已终止，且不残留 `npx`/DSH 子进程。
+7. 再次启动并允许 npx 完成，确认同一窗口加载 DSH Web。
+8. 同时隐藏 `dsh` 和 npx，确认启动按钮保持禁用并显示缺失环境。
 
 预期 JSONL 包含 `local_dsh.npx_fallback`，成功或失败事件包含 `childOutputFile`；npx
-原始下载输出只写入对应 `.child.log`，不会复制到 JSONL。
+原始下载输出只写入 对应 `.child.log`，不会复制到 JSONL。
 
 ## 回报模板
 

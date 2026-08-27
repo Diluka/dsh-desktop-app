@@ -5,7 +5,7 @@ import {
   LocalDshError,
   localDshInstallError,
   type LocalDshWeb,
-  probeLocalDshLauncher,
+  probeLocalDshEnvironment,
   startLocalDshWeb,
 } from "./src/local_dsh.ts";
 import { createLogger } from "./src/logger.ts";
@@ -61,10 +61,11 @@ async function startDesktopWithShellServer(
     }, "Recovered from an invalid profile file");
   }
 
-  const [ssh, localDshLauncher] = await Promise.all([
+  const [ssh, localDshEnvironment] = await Promise.all([
     probeOpenSsh(),
-    probeLocalDshLauncher(),
+    probeLocalDshEnvironment(),
   ]);
+  const localDshLauncher = localDshEnvironment.launcher;
   logger.info({
     event: "ssh.probe",
     available: ssh.available,
@@ -74,6 +75,9 @@ async function startDesktopWithShellServer(
     event: "local_dsh.probe",
     available: Boolean(localDshLauncher),
     launcher: localDshLauncher?.kind ?? "unavailable",
+    nodeVersion: localDshEnvironment.node?.version ?? "unavailable",
+    dshVersion: localDshEnvironment.dsh?.version ?? "unavailable",
+    npxVersion: localDshEnvironment.npx?.version ?? "unavailable",
   }, localDshLauncher ? "Local DSH launcher is available" : "Local DSH launcher is unavailable");
 
   const iconLookupTitle = Deno.build.os === "windows" ? `DSH Desktop ${Deno.pid}` : "DSH Desktop";
@@ -130,6 +134,14 @@ async function startDesktopWithShellServer(
     window.bind("bootstrap", async () => ({
       profiles: store.list(),
       ssh,
+      localEnvironment: {
+        platform: `${Deno.build.os} ${Deno.build.arch}`,
+        nodeVersion: localDshEnvironment.node?.version,
+        dshVersion: localDshEnvironment.dsh?.version,
+        npxVersion: localDshEnvironment.npx?.version,
+        launcher: localDshLauncher?.kind,
+        canStart: Boolean(localDshLauncher),
+      },
       logDirectory: paths.logDirectory,
       browserBackend: backend === "webview" ? "Microsoft Edge WebView2" : "Chromium / CEF",
       ...(startupNotice ? { startupNotice } : {}),
