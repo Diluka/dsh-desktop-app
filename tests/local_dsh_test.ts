@@ -1,21 +1,92 @@
 import { assert, assertEquals, assertMatch, assertRejects } from "@std/assert";
-import { buildDshWebArguments, LocalDshError, startLocalDshWeb } from "../src/local_dsh.ts";
+import {
+  buildDshWebArguments,
+  LocalDshError,
+  localDshInstallError,
+  type LocalDshLauncher,
+  probeLocalDshLauncher,
+  startLocalDshWeb,
+} from "../src/local_dsh.ts";
 import { fakeChild, memoryLogger, tempFile } from "./test_helpers.ts";
 
-Deno.test("buildDshWebArguments starts loopback web without opening a browser", () => {
-  const args = buildDshWebArguments(45000);
+const DSH_LAUNCHER = {
+  kind: "dsh",
+  command: "fake-dsh",
+  prefix: [],
+} as const satisfies LocalDshLauncher;
 
-  assertEquals(args, ["web", "--host", "127.0.0.1", "--port", "45000", "--no-open"]);
+const NPX_LAUNCHER = {
+  kind: "npx",
+  command: "fake-npx",
+  prefix: ["-y", "@deepseek-ai/dsh"],
+} as const satisfies LocalDshLauncher;
+
+Deno.test("buildDshWebArguments starts loopback web without opening a browser", () => {
+  assertEquals(buildDshWebArguments(45000), [
+    "web",
+    "--host",
+    "127.0.0.1",
+    "--port",
+    "45000",
+    "--no-open",
+  ]);
 });
 
-Deno.test("startLocalDshWeb supports fake child ready path and stop lifecycle", async () => {
+Deno.test("probeLocalDshLauncher prefers dsh", async () => {
+  const commands: string[] = [];
+  const launcher = await probeLocalDshLauncher((command) => {
+    commands.push(command);
+    return Promise.resolve();
+  }, "linux");
+
+  assertEquals(commands, ["dsh"]);
+  assertEquals(launcher, { kind: "dsh", command: "dsh", prefix: [] });
+});
+
+Deno.test("probeLocalDshLauncher preserves dsh on non-lookup errors", async () => {
+  const denied = Object.assign(new Error("permission denied"), { code: "EACCES" });
+  const launcher = await probeLocalDshLauncher(() => Promise.reject(denied), "linux");
+
+  assertEquals(launcher, { kind: "dsh", command: "dsh", prefix: [] });
+});
+
+Deno.test("probeLocalDshLauncher falls back to npx", async () => {
+  const commands: string[] = [];
+  const launcher = await probeLocalDshLauncher((command) => {
+    commands.push(command);
+    return command === "dsh"
+      ? Promise.reject(new Deno.errors.NotFound("missing dsh"))
+      : Promise.resolve();
+  }, "linux");
+
+  assertEquals(commands, ["dsh", "npx"]);
+  assertEquals(launcher, {
+    kind: "npx",
+    command: "npx",
+    prefix: ["-y", "@deepseek-ai/dsh"],
+  });
+});
+
+Deno.test("probeLocalDshLauncher reports no usable launcher", async () => {
+  const launcher = await probeLocalDshLauncher(
+    (command) => Promise.reject(new Deno.errors.NotFound(`missing ${command}`)),
+    "linux",
+  );
+  const error = localDshInstallError();
+
+  assertEquals(launcher, undefined);
+  assertEquals(error.code, "DSH_NOT_FOUND");
+  assertMatch(error.message, /dsh.*npx/u);
+  assert(error.message.includes("PATH"));
+});
+
+Deno.test("startLocalDshWeb starts a resolved dsh launcher", async () => {
   const { logger } = await memoryLogger();
+  const child = fakeChild();
   let capturedCommand = "";
   let capturedArgs: string[] = [];
-  const child = fakeChild();
 
-  const web = await startLocalDshWeb(logger, {
-    command: "fake-dsh",
+  const web = await startLocalDshWeb(logger, DSH_LAUNCHER, {
     allocatePort: () => Promise.resolve(45000),
     spawn: (command, args) => {
       capturedCommand = command;
@@ -44,26 +115,24 @@ Deno.test("startLocalDshWeb supports fake child ready path and stop lifecycle", 
   });
 });
 
-Deno.test("startLocalDshWeb falls back to npx when dsh is missing", async () => {
+Deno.test("startLocalDshWeb prepends a resolved npx launcher", async () => {
   const { logger } = await memoryLogger();
   const child = fakeChild();
-  const commands: string[] = [];
-  let npxArgs: string[] = [];
+  let capturedCommand = "";
+  let capturedArgs: string[] = [];
 
-  const web = await startLocalDshWeb(logger, {
+  const web = await startLocalDshWeb(logger, NPX_LAUNCHER, {
     allocatePort: () => Promise.resolve(45001),
     spawn: (command, args) => {
-      commands.push(command);
-      if (command === "dsh") throw new Deno.errors.NotFound("missing dsh");
-      npxArgs = args;
+      capturedCommand = command;
+      capturedArgs = args;
       return child;
     },
     probe: () => Promise.resolve(),
   });
 
-  assertEquals(commands[0], "dsh");
-  assertEquals(npxArgs, ["-y", "@deepseek-ai/dsh", ...buildDshWebArguments(45001)]);
-  assertEquals(commands[1], Deno.build.os === "windows" ? "npx.cmd" : "npx");
+  assertEquals(capturedCommand, "fake-npx");
+  assertEquals(capturedArgs, ["-y", "@deepseek-ai/dsh", ...buildDshWebArguments(45001)]);
   const stopped = web.stop();
   child.finish({ success: true, code: 0, signal: null });
   await stopped;
@@ -81,7 +150,7 @@ Deno.test("startLocalDshWeb retries when a selected port is claimed", async () =
   const allocatedPorts: number[] = [];
   let spawnCount = 0;
 
-  const web = await startLocalDshWeb(logger, {
+  const web = await startLocalDshWeb(logger, DSH_LAUNCHER, {
     allocatePort: () => Promise.resolve(spawnCount === 0 ? 45001 : 45002),
     spawn: (_command, args) => {
       spawnCount += 1;
@@ -109,39 +178,11 @@ Deno.test("startLocalDshWeb retries when a selected port is claimed", async () =
   assert(!log.includes("warming up"));
 });
 
-Deno.test("startLocalDshWeb reports installation help after dsh and npx fail", async () => {
-  const { logger } = await memoryLogger();
-  const commands: string[] = [];
-  const error = await assertRejects(
-    () =>
-      startLocalDshWeb(logger, {
-        allocatePort: () => Promise.resolve(45003),
-        spawn: (command) => {
-          commands.push(command);
-          throw new Deno.errors.NotFound(`missing ${command}`);
-        },
-        probe: () => {
-          throw new Error("missing dsh should fail before probing");
-        },
-        delay: () => {
-          throw new Error("missing dsh should fail before waiting");
-        },
-      }),
-    LocalDshError,
-  );
-
-  assertEquals(commands[0], "dsh");
-  assertEquals(commands.length, 2);
-  assertEquals(error.code, "DSH_NOT_FOUND");
-  assertMatch(error.message, /dsh.*npx/u);
-  assert(error.message.includes("PATH"));
-});
-
 Deno.test("startLocalDshWeb cancels before spawning while port allocation is pending", async () => {
   const { logger } = await memoryLogger();
   const controller = new AbortController();
   let spawnCount = 0;
-  const starting = startLocalDshWeb(logger, {
+  const starting = startLocalDshWeb(logger, DSH_LAUNCHER, {
     allocatePort: () => new Promise<number>(() => {}),
     spawn: () => {
       spawnCount += 1;
@@ -157,7 +198,7 @@ Deno.test("startLocalDshWeb cancels before spawning while port allocation is pen
   assertEquals(spawnCount, 0);
 });
 
-Deno.test("startLocalDshWeb cancels an in-progress npx fallback", async () => {
+Deno.test("startLocalDshWeb cancels an in-progress npx launcher", async () => {
   const { logger } = await memoryLogger();
   const controller = new AbortController();
   const child = fakeChild();
@@ -170,12 +211,9 @@ Deno.test("startLocalDshWeb cancels an in-progress npx fallback", async () => {
   const started = new Promise<void>((resolve) => {
     resolveStarted = resolve;
   });
-  const commands: string[] = [];
-  const starting = startLocalDshWeb(logger, {
+  const starting = startLocalDshWeb(logger, NPX_LAUNCHER, {
     allocatePort: () => Promise.resolve(45004),
-    spawn: (command) => {
-      commands.push(command);
-      if (command === "dsh") throw new Deno.errors.NotFound("missing dsh");
+    spawn: () => {
       resolveStarted();
       return child;
     },
@@ -187,8 +225,6 @@ Deno.test("startLocalDshWeb cancels an in-progress npx fallback", async () => {
   controller.abort();
   const error = await assertRejects(() => starting, LocalDshError);
 
-  assertEquals(commands[0], "dsh");
-  assertEquals(commands.length, 2);
   assertEquals(error.code, "START_CANCELLED");
   assertEquals(child.kills, ["SIGTERM"]);
 });

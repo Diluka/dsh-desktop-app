@@ -3,6 +3,7 @@ import { assert, assertEquals, assertFalse, assertStringIncludes } from "@std/as
 import {
   isCommandNotFoundError,
   readProcessOutputTail,
+  runHiddenCommand,
   spawnHiddenProcess,
 } from "../src/hidden_process.ts";
 
@@ -37,6 +38,9 @@ Deno.test("spawnHiddenProcess runs Windows cmd shims through ComSpec", async () 
 
   assertEquals(await child.status, { success: true, code: 0, signal: null });
   assertStringIncludes(await Deno.readTextFile(child.outputFile), "cmd output");
+  const probe = await runHiddenCommand(script, []);
+  assertEquals(probe.success, true);
+  assertStringIncludes(probe.stdout, "cmd output");
 });
 
 Deno.test("readProcessOutputTail starts at a complete UTF-8 character", async () => {

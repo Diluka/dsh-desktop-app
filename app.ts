@@ -1,7 +1,13 @@
 import { resolveAppPaths } from "./src/app_paths.ts";
 import { detectSystemLocale } from "./src/browser_locale.ts";
 import { readProcessOutputTail, spawnHiddenProcess } from "./src/hidden_process.ts";
-import { LocalDshError, type LocalDshWeb, startLocalDshWeb } from "./src/local_dsh.ts";
+import {
+  LocalDshError,
+  localDshInstallError,
+  type LocalDshWeb,
+  probeLocalDshLauncher,
+  startLocalDshWeb,
+} from "./src/local_dsh.ts";
 import { createLogger } from "./src/logger.ts";
 import { openDirectory } from "./src/open_directory.ts";
 import { ProfileStore, type ServerProfileInput } from "./src/profiles.ts";
@@ -55,12 +61,20 @@ async function startDesktopWithShellServer(
     }, "Recovered from an invalid profile file");
   }
 
-  const ssh = await probeOpenSsh();
+  const [ssh, localDshLauncher] = await Promise.all([
+    probeOpenSsh(),
+    probeLocalDshLauncher(),
+  ]);
   logger.info({
     event: "ssh.probe",
     available: ssh.available,
     version: ssh.version ?? "unknown",
   }, ssh.available ? "OpenSSH Client is available" : "OpenSSH Client is unavailable");
+  logger.info({
+    event: "local_dsh.probe",
+    available: Boolean(localDshLauncher),
+    launcher: localDshLauncher?.kind ?? "unavailable",
+  }, localDshLauncher ? "Local DSH launcher is available" : "Local DSH launcher is unavailable");
 
   const iconLookupTitle = Deno.build.os === "windows" ? `DSH Desktop ${Deno.pid}` : "DSH Desktop";
   const window = backend === "webview"
@@ -237,6 +251,7 @@ async function startDesktopWithShellServer(
 
   async function connectLocal(): Promise<void> {
     if (connecting) throw new Error("已有连接正在建立，请稍候");
+    if (!localDshLauncher) throw localDshInstallError();
     const controller = new AbortController();
     localStartController = controller;
     connecting = true;
@@ -249,7 +264,13 @@ async function startDesktopWithShellServer(
         await activeLocal.stop();
         activeLocal = undefined;
       }
-      const local = await startLocalDshWeb(logger, {
+      if (localDshLauncher.kind === "npx") {
+        logger.warn(
+          { event: "local_dsh.npx_fallback", command: localDshLauncher.command },
+          "Local dsh command was unavailable; using npx",
+        );
+      }
+      const local = await startLocalDshWeb(logger, localDshLauncher, {
         spawn: spawnChild,
         signal: controller.signal,
       });
@@ -270,6 +291,13 @@ async function startDesktopWithShellServer(
       if (error instanceof LocalDshError && error.code === "START_CANCELLED") {
         logger.info({ event: "local_dsh.start_cancelled" }, "Local DSH Web start was cancelled");
         throw error;
+      }
+      if (
+        localDshLauncher.kind === "npx" && error instanceof LocalDshError &&
+        error.code === "DSH_WEB_FAILED"
+      ) {
+        logger.warn({ event: "local_dsh.npx_failed", err: error }, "npx launcher failed");
+        throw localDshInstallError();
       }
       logger.error(
         { event: "local_dsh.connect_failed", err: error },

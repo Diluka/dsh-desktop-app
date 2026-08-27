@@ -3,6 +3,7 @@ import {
   isCommandNotFoundError,
   type ManagedHiddenProcess,
   readProcessOutputTail,
+  runHiddenCommand,
 } from "./hidden_process.ts";
 import { allocateLoopbackPort, probeHttp } from "./loopback_http.ts";
 
@@ -23,8 +24,13 @@ export class LocalDshError extends Error {
   }
 }
 
+export interface LocalDshLauncher {
+  readonly kind: "dsh" | "npx";
+  readonly command: string;
+  readonly prefix: readonly string[];
+}
+
 interface StartLocalDshOptions {
-  readonly command?: string;
   readonly allocatePort?: () => Promise<number>;
   readonly spawn: (command: string, args: string[]) => ManagedHiddenProcess;
   readonly probe?: (url: string) => Promise<void>;
@@ -91,41 +97,44 @@ export function buildDshWebArguments(port: number): string[] {
   return ["web", "--host", "127.0.0.1", "--port", String(port), "--no-open"];
 }
 
+export async function probeLocalDshLauncher(
+  probe: (command: string, args: string[]) => Promise<unknown> = runHiddenCommand,
+  os: typeof Deno.build.os = Deno.build.os,
+): Promise<LocalDshLauncher | undefined> {
+  const extension = os === "windows" ? ".cmd" : "";
+  const candidates: LocalDshLauncher[] = [
+    { kind: "dsh", command: `dsh${extension}`, prefix: [] },
+    { kind: "npx", command: `npx${extension}`, prefix: ["-y", NPX_DSH_PACKAGE] },
+  ];
+  for (const launcher of candidates) {
+    try {
+      await probe(launcher.command, ["--version"]);
+      return launcher;
+    } catch (error) {
+      if (!isCommandNotFoundError(error)) return launcher;
+    }
+  }
+  return undefined;
+}
+
 export async function startLocalDshWeb(
   logger: Logger,
+  launcher: LocalDshLauncher,
   options: StartLocalDshOptions,
 ): Promise<LocalDshWeb> {
   const cancelOutcome = waitForCancellation(options.signal);
-  let launcher: "dsh" | "npx" = "dsh";
-  let portAttempt = 0;
-  while (portAttempt < MAX_LOCAL_PORT_ATTEMPTS) {
+  for (let attempt = 1; attempt <= MAX_LOCAL_PORT_ATTEMPTS; attempt++) {
     throwIfCancelled(options.signal);
     try {
-      return await startLocalDshAttempt(logger, options, launcher, cancelOutcome);
+      return await startLocalDshAttempt(logger, launcher, options, cancelOutcome);
     } catch (error) {
       throwIfCancelled(options.signal);
       if (error instanceof LocalDshError && error.code === "START_CANCELLED") throw error;
-      if (launcher === "dsh" && error instanceof LocalDshError && error.code === "DSH_NOT_FOUND") {
-        launcher = "npx";
-        logger.warn(
-          { event: "local_dsh.npx_fallback", package: NPX_DSH_PACKAGE },
-          "Local dsh command was unavailable; falling back to npx",
-        );
-        continue;
-      }
-      if (error instanceof LocalDshError && error.code === "LOCAL_PORT_BUSY") {
-        portAttempt += 1;
-        logger.warn(
-          { event: "local_dsh.port_retry", launcher, attempt: portAttempt },
-          "Local DSH Web port was busy",
-        );
-        continue;
-      }
-      if (launcher === "npx") {
-        logger.warn({ event: "local_dsh.npx_failed", err: error }, "npx fallback failed");
-        throw new LocalDshError("DSH_NOT_FOUND", dshInstallHelp());
-      }
-      throw error;
+      if (!(error instanceof LocalDshError) || error.code !== "LOCAL_PORT_BUSY") throw error;
+      logger.warn(
+        { event: "local_dsh.port_retry", launcher: launcher.kind, attempt },
+        "Local DSH Web port was busy",
+      );
     }
   }
   throw new LocalDshError("LOCAL_PORT_BUSY", "无法分配本地端口，请重试");
@@ -133,8 +142,8 @@ export async function startLocalDshWeb(
 
 async function startLocalDshAttempt(
   logger: Logger,
+  launcher: LocalDshLauncher,
   options: StartLocalDshOptions,
-  launcher: "dsh" | "npx",
   cancelOutcome: Promise<{ kind: "cancel" }>,
 ): Promise<LocalDshWeb> {
   throwIfCancelled(options.signal);
@@ -149,17 +158,15 @@ async function startLocalDshAttempt(
   if (allocation.kind === "cancel") throw cancelledError();
   throwIfCancelled(options.signal);
   const localPort = allocation.port;
-  const prefix: [string, ...string[]] = launcher === "npx"
-    ? [Deno.build.os === "windows" ? "npx.cmd" : "npx", "-y", NPX_DSH_PACKAGE]
-    : [options.command ?? "dsh"];
   const [command, ...args] = [
-    ...prefix,
+    launcher.command,
+    ...launcher.prefix,
     ...buildDshWebArguments(localPort),
-  ] as [string, ...string[]];
+  ];
 
   logger.info({
     event: "local_dsh.starting",
-    launcher,
+    launcher: launcher.kind,
     port: localPort,
   }, "Starting local DSH Web");
 
@@ -167,9 +174,7 @@ async function startLocalDshAttempt(
   try {
     child = spawn(command, args);
   } catch (error) {
-    if (isCommandNotFoundError(error)) {
-      throw new LocalDshError("DSH_NOT_FOUND", dshInstallHelp());
-    }
+    if (isCommandNotFoundError(error)) throw localDshInstallError();
     throw error;
   }
 
@@ -243,9 +248,7 @@ function classifyLocalDshFailure(detail: string, processError?: Error): LocalDsh
   ) {
     return new LocalDshError("LOCAL_PORT_BUSY", "本地端口刚被其他程序占用，正在重试");
   }
-  if (isCommandNotFoundError(processError)) {
-    return new LocalDshError("DSH_NOT_FOUND", dshInstallHelp());
-  }
+  if (isCommandNotFoundError(processError)) return localDshInstallError();
   return new LocalDshError("DSH_WEB_FAILED", "dsh web 启动失败，详细信息已写入日志。");
 }
 
@@ -268,8 +271,11 @@ function cancelledError(): LocalDshError {
   return new LocalDshError("START_CANCELLED", "本地模式启动已终止");
 }
 
-function dshInstallHelp(): string {
-  return "无法通过 dsh 或 npx 启动 DSH，请安装 DSH CLI 并确认 dsh 可从 PATH 启动。";
+export function localDshInstallError(): LocalDshError {
+  return new LocalDshError(
+    "DSH_NOT_FOUND",
+    "无法通过 dsh 或 npx 启动 DSH，请安装 DSH CLI 并确认 dsh 可从 PATH 启动。",
+  );
 }
 
 function sleep(milliseconds: number): Promise<void> {

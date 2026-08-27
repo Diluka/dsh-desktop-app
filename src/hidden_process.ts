@@ -23,17 +23,24 @@ export interface HiddenCommandOutput extends HiddenProcessStatus {
   readonly stderr: string;
 }
 
-export function spawnHiddenProcess(
+function resolveProcessLaunch(
   command: string,
   args: string[],
-  logDirectory: string,
-): ManagedHiddenProcess {
-  const launch = Deno.build.os === "windows" && command.toLowerCase().endsWith(".cmd")
+): { command: string; args: string[] } {
+  return Deno.build.os === "windows" && command.toLowerCase().endsWith(".cmd")
     ? {
       command: Deno.env.get("ComSpec") ?? "cmd.exe",
       args: ["/d", "/s", "/c", command, ...args],
     }
     : { command, args };
+}
+
+export function spawnHiddenProcess(
+  command: string,
+  args: string[],
+  logDirectory: string,
+): ManagedHiddenProcess {
+  const launch = resolveProcessLaunch(command, args);
   const outputFile = join(logDirectory, `dsh-desktop-child-${crypto.randomUUID()}.log`);
   const outputFd = openSync(outputFile, "a", 0o600);
   const child = (() => {
@@ -100,7 +107,8 @@ export async function runHiddenCommand(
   command: string,
   args: string[],
 ): Promise<HiddenCommandOutput> {
-  const child = spawn(command, args, {
+  const launch = resolveProcessLaunch(command, args);
+  const child = spawn(launch.command, launch.args, {
     windowsHide: WINDOWS_HIDE_PROCESS,
     stdio: ["ignore", "pipe", "pipe"],
   });
