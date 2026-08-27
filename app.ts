@@ -75,9 +75,15 @@ async function startDesktopWithShellServer(
       event: "local_dsh.probe",
       available: Boolean(localDshLauncher),
       launcher: localDshLauncher?.kind ?? "unavailable",
+      loginShell: Deno.build.os === "windows"
+        ? "not-applicable"
+        : Deno.env.get("SHELL") ?? (Deno.build.os === "darwin" ? "/bin/zsh" : "/bin/sh"),
       nodeVersion: localDshEnvironment.node?.version ?? "unavailable",
+      nodeCommand: localDshEnvironment.node?.command ?? "unavailable",
       dshVersion: localDshEnvironment.dsh?.version ?? "unavailable",
+      dshCommand: localDshEnvironment.dsh?.command ?? "unavailable",
       npxVersion: localDshEnvironment.npx?.version ?? "unavailable",
+      npxCommand: localDshEnvironment.npx?.command ?? "unavailable",
     }, localDshLauncher ? "Local DSH launcher is available" : "Local DSH launcher is unavailable");
     return { ssh, localDshEnvironment, localDshLauncher };
   });

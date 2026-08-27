@@ -1,0 +1,34 @@
+name: Toolchain compatibility - nvm
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: nvm / Linux x86_64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.9.5
+      - name: Install nvm and Node.js
+        shell: bash
+        run: |
+          export PROFILE=/dev/null
+          curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.7/install.sh | bash
+          . "$HOME/.nvm/nvm.sh"
+          nvm install 24.15.0
+          nvm alias default 24.15.0
+      - name: Configure bash login profile
+        shell: bash
+        run: bash scripts/configure_node_manager_profile.sh nvm
+      - name: Verify login-shell resolution
+        shell: bash
+        run: bash scripts/run_toolchain_environment_check.sh

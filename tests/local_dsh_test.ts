@@ -1,4 +1,10 @@
-import { assert, assertEquals, assertMatch, assertRejects } from "@std/assert";
+import {
+  assert,
+  assertEquals,
+  assertMatch,
+  assertRejects,
+  assertStringIncludes,
+} from "@std/assert";
 import {
   buildDshWebArguments,
   LocalDshError,
@@ -17,15 +23,22 @@ const DSH_LAUNCHER = {
 
 const NPX_LAUNCHER = {
   kind: "npx",
-  command: "fake-npx",
-  prefix: ["-y", "@deepseek-ai/dsh"],
+  command: "/bin/bash",
+  prefix: ["-lic", 'exec "$0" "$@"', "npx", "-y", "@deepseek-ai/dsh"],
 } as const satisfies LocalDshLauncher;
 
 const NO_PATH_RESOLUTION = () => Promise.resolve({});
-const RESOLVE_NODE = () => Promise.resolve({ node: "node" });
+const TOOL_PROBE_MARKER = "__DSH_DESKTOP_TOOL__";
+const LOGIN_SHELL_EXEC = 'exec "$0" "$@"';
 
 function versionOutput(version: string, success = true) {
   return { success, stdout: version, stderr: "" };
+}
+
+function loginShellOutput(values: Record<string, string>) {
+  return versionOutput(
+    Object.entries(values).map(([key, value]) => `${TOOL_PROBE_MARKER}${key}=${value}`).join("\n"),
+  );
 }
 
 Deno.test("buildDshWebArguments starts loopback web without opening a browser", () => {
@@ -39,113 +52,107 @@ Deno.test("buildDshWebArguments starts loopback web without opening a browser", 
   ]);
 });
 
-Deno.test("probeLocalDshEnvironment probes tool versions without running the DSH package", async () => {
+Deno.test("probeLocalDshEnvironment probes all Unix tools in one login shell", async () => {
   const calls: Array<{ command: string; args: string[] }> = [];
-  const versions: Record<string, string> = {
-    node: "v24.19.0",
-    dsh: "0.1.1-rc.2",
-    npx: "11.6.2",
-  };
   const environment = await probeLocalDshEnvironment(
     (command, args) => {
       calls.push({ command, args });
-      return Promise.resolve(versionOutput(versions[command]));
+      return Promise.resolve(loginShellOutput({
+        "node.command": "/Users/alice/.mise/shims/node",
+        "node.version": "v24.19.0",
+        "dsh.command": "/Users/alice/.mise/shims/dsh",
+        "dsh.version": "0.1.1-rc.2",
+        "npx.command": "/Users/alice/.mise/shims/npx",
+        "npx.version": "11.6.2",
+      }));
     },
-    "linux",
-    () => Promise.resolve({ node: "node", dsh: "/shell/dsh", npx: "/shell/npx" }),
+    "darwin",
+    NO_PATH_RESOLUTION,
+    "/bin/zsh",
   );
 
-  assertEquals(calls.length, 3);
-  for (const command of ["node", "dsh", "npx"]) {
-    assertEquals(calls.find((call) => call.command === command)?.args, ["--version"]);
+  assertEquals(calls.length, 1);
+  assertEquals(calls[0].command, "/bin/zsh");
+  assertEquals(calls[0].args[0], "-lic");
+  for (const tool of ["node", "dsh", "npx"]) {
+    assertStringIncludes(calls[0].args[1], `${tool} --version`);
   }
-  assert(calls.every((call) => !call.args.includes("@deepseek-ai/dsh")));
+  assert(!calls[0].args[1].includes("@deepseek-ai/dsh"));
   assertEquals(environment, {
-    node: { command: "node", version: "v24.19.0" },
-    dsh: { command: "dsh", version: "0.1.1-rc.2" },
-    npx: { command: "npx", version: "11.6.2" },
-    launcher: { kind: "dsh", command: "dsh", prefix: [] },
+    node: { command: "/Users/alice/.mise/shims/node", version: "v24.19.0" },
+    dsh: { command: "/Users/alice/.mise/shims/dsh", version: "0.1.1-rc.2" },
+    npx: { command: "/Users/alice/.mise/shims/npx", version: "11.6.2" },
+    launcher: {
+      kind: "dsh",
+      command: "/bin/zsh",
+      prefix: ["-lic", LOGIN_SHELL_EXEC, "dsh"],
+    },
   });
 });
 
-Deno.test("probeLocalDshEnvironment selects npx only when dsh is missing", async () => {
-  const calls: Array<{ command: string; args: string[] }> = [];
+Deno.test("probeLocalDshEnvironment selects a login-shell npx launcher when dsh is missing", async () => {
   const environment = await probeLocalDshEnvironment(
-    (command, args) => {
-      calls.push({ command, args });
-      if (command === "dsh") return Promise.reject(new Deno.errors.NotFound("missing dsh"));
-      return Promise.resolve(versionOutput(command === "node" ? "v24.19.0" : "11.6.2"));
-    },
-    "linux",
-    RESOLVE_NODE,
+    () =>
+      Promise.resolve(loginShellOutput({
+        "node.command": "/Users/alice/.nvm/current/bin/node",
+        "node.version": "v24.19.0",
+        "npx.command": "/Users/alice/.nvm/current/bin/npx",
+        "npx.version": "11.6.2",
+      })),
+    "darwin",
+    NO_PATH_RESOLUTION,
+    "/bin/zsh",
   );
 
-  assertEquals(calls.find((call) => call.command === "npx")?.args, ["--version"]);
   assertEquals(environment.launcher, {
     kind: "npx",
-    command: "npx",
-    prefix: ["-y", "@deepseek-ai/dsh"],
+    command: "/bin/zsh",
+    prefix: ["-lic", LOGIN_SHELL_EXEC, "npx", "-y", "@deepseek-ai/dsh"],
   });
 });
 
-Deno.test("probeLocalDshEnvironment does not hide a broken dsh behind npx", async () => {
-  const calls: string[] = [];
+Deno.test("probeLocalDshEnvironment does not hide a broken login-shell dsh behind npx", async () => {
   const environment = await probeLocalDshEnvironment(
-    (command) => {
-      calls.push(command);
-      if (command === "dsh") return Promise.resolve(versionOutput("", false));
-      return Promise.resolve(versionOutput(command === "node" ? "v24.19.0" : "11.6.2"));
-    },
+    () =>
+      Promise.resolve(loginShellOutput({
+        "node.command": "/tools/node",
+        "node.version": "v24.19.0",
+        "dsh.command": "/tools/dsh",
+        "npx.command": "/tools/npx",
+        "npx.version": "11.6.2",
+      })),
     "linux",
-    () => Promise.resolve({ node: "node", dsh: "/shell/dsh", npx: "/shell/npx" }),
+    NO_PATH_RESOLUTION,
+    "/bin/bash",
   );
 
-  assert(!calls.includes("/shell/dsh"));
   assertEquals(environment.dsh, undefined);
   assertEquals(environment.launcher, undefined);
 });
 
-Deno.test("probeLocalDshEnvironment resolves all login-shell paths once", async () => {
-  const probedCommands: string[] = [];
-  const resolvedCommandSets: string[][] = [];
+Deno.test("probeLocalDshEnvironment keeps native Windows command resolution", async () => {
   const environment = await probeLocalDshEnvironment(
     (command) => {
-      probedCommands.push(command);
-      if (!command.startsWith("/Users/alice/tools/bin/")) {
-        return Promise.reject(new Deno.errors.NotFound(`missing ${command}`));
-      }
-      const name = command.split("/").at(-1);
-      const version = name === "node" ? "v24.19.0" : name === "dsh" ? "0.1.1" : "11.6.2";
-      return Promise.resolve(versionOutput(version));
+      if (command === "dsh.cmd") return Promise.reject(new Deno.errors.NotFound("missing dsh"));
+      return Promise.resolve(versionOutput(command.endsWith("node.exe") ? "v24.19.0" : "11.6.2"));
     },
-    "darwin",
-    (commands) => {
-      resolvedCommandSets.push(commands);
-      return Promise.resolve(Object.fromEntries(
-        commands.map((command) => [command, `/Users/alice/tools/bin/${command}`]),
-      ));
-    },
+    "windows",
+    () => Promise.resolve({ node: "C:\\tools\\node.exe" }),
   );
 
-  assertEquals(resolvedCommandSets, [["node", "dsh", "npx"]]);
-  assertEquals(probedCommands, [
-    "dsh",
-    "npx",
-    "/Users/alice/tools/bin/node",
-    "/Users/alice/tools/bin/dsh",
-    "/Users/alice/tools/bin/npx",
-  ]);
-  assertEquals(environment.node?.command, "/Users/alice/tools/bin/node");
-  assertEquals(environment.dsh?.command, "/Users/alice/tools/bin/dsh");
-  assertEquals(environment.npx?.command, "/Users/alice/tools/bin/npx");
-  assertEquals(environment.launcher?.kind, "dsh");
+  assertEquals(environment.launcher, {
+    kind: "npx",
+    command: "npx.cmd",
+    prefix: ["-y", "@deepseek-ai/dsh"],
+  });
 });
 
 Deno.test("probeLocalDshEnvironment reports no usable launcher", async () => {
   const environment = await probeLocalDshEnvironment(
-    (command) => Promise.reject(new Deno.errors.NotFound(`missing ${command}`)),
+    () => Promise.resolve(versionOutput("")),
     "linux",
     NO_PATH_RESOLUTION,
+    "/bin/bash",
   );
   const error = localDshInstallError();
 
@@ -210,8 +217,8 @@ Deno.test("startLocalDshWeb adds the DSH package only for an actual npx launch",
     probe: () => Promise.resolve(),
   });
 
-  assertEquals(capturedCommand, "fake-npx");
-  assertEquals(capturedArgs, ["-y", "@deepseek-ai/dsh", ...buildDshWebArguments(45001)]);
+  assertEquals(capturedCommand, "/bin/bash");
+  assertEquals(capturedArgs, [...NPX_LAUNCHER.prefix, ...buildDshWebArguments(45001)]);
   const stopped = web.stop();
   child.finish({ success: true, code: 0, signal: null });
   await stopped;

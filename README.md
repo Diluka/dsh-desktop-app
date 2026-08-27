@@ -37,8 +37,8 @@ DSH Web。 Windows 同时提供内置 Chromium（CEF）与系统 WebView2 两种
 
 - 应用启动阶段只执行 `node --version`、`dsh --version` 和 `npx --version`，不会通过 npx 下载或运行
   DSH。
-- macOS/Linux 启动一次用户登录 shell，批量解析命令路径，兼容由 shell profile 提供 PATH
-  的版本管理器。
+- macOS/Linux 使用用户默认 login shell 完成环境探测和本地命令启动，直接继承 shell profile 中的 Node
+  版本管理器环境。
 - 只有用户点击启动且未找到 `dsh` 时，应用才执行 `npx -y @deepseek-ai/dsh`。首次下载可能超过 30
   分钟；本地启动不设置超时，可在等待弹窗中点击“终止启动”。
 

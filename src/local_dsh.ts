@@ -8,9 +8,10 @@ import {
 import { allocateLoopbackPort, probeHttp } from "./loopback_http.ts";
 
 const MAX_LOCAL_PORT_ATTEMPTS = 3;
-const COMMAND_PROBE_TIMEOUT_MS = 5_000;
 const COMMAND_PATH_TIMEOUT_MS = 10_000;
 const NPX_DSH_PACKAGE = "@deepseek-ai/dsh";
+const LOGIN_SHELL_EXEC = 'exec "$0" "$@"';
+const TOOL_PROBE_MARKER = "__DSH_DESKTOP_TOOL__";
 
 export type LocalDshErrorCode =
   | "DSH_NOT_FOUND"
@@ -124,15 +125,74 @@ export function buildDshWebArguments(port: number): string[] {
 
 export async function probeLocalDshEnvironment(
   probe: (command: string, args: string[]) => Promise<CommandProbeOutput> = (command, args) =>
-    runHiddenCommand(command, args, COMMAND_PROBE_TIMEOUT_MS),
+    runHiddenCommand(command, args, COMMAND_PATH_TIMEOUT_MS),
   os: typeof Deno.build.os = Deno.build.os,
-  resolveCommands: (commands: string[]) => Promise<Record<string, string>> = (commands) =>
-    resolveCommandPaths(commands, os),
+  resolveWindowsCommands: (commands: string[]) => Promise<Record<string, string>> =
+    resolveWindowsCommandPaths,
+  loginShell = Deno.env.get("SHELL") ?? (os === "darwin" ? "/bin/zsh" : "/bin/sh"),
 ): Promise<LocalDshEnvironment> {
-  const commandExtension = os === "windows" ? ".cmd" : "";
+  return os === "windows"
+    ? await probeWindowsEnvironment(probe, resolveWindowsCommands)
+    : await probeLoginShellEnvironment(probe, loginShell);
+}
+
+async function probeLoginShellEnvironment(
+  probe: (command: string, args: string[]) => Promise<CommandProbeOutput>,
+  shell: string,
+): Promise<LocalDshEnvironment> {
+  let output: CommandProbeOutput;
+  try {
+    output = await probe(shell, ["-lic", buildToolProbeScript()]);
+  } catch {
+    return {};
+  }
+
+  const values: Record<string, string> = {};
+  for (const line of output.stdout.split(/\r?\n/u).map((value) => value.trim())) {
+    if (!line.startsWith(TOOL_PROBE_MARKER)) continue;
+    const separator = line.indexOf("=", TOOL_PROBE_MARKER.length);
+    if (separator < 0) continue;
+    values[line.slice(TOOL_PROBE_MARKER.length, separator)] = line.slice(separator + 1);
+  }
+
+  const node = toolInfo(values, "node");
+  const dsh = toolInfo(values, "dsh");
+  const npx = toolInfo(values, "npx");
+  const dshPresent = Boolean(values["dsh.command"]);
+  const launcher: LocalDshLauncher | undefined = dsh
+    ? { kind: "dsh", command: shell, prefix: ["-lic", LOGIN_SHELL_EXEC, "dsh"] }
+    : !dshPresent && node && npx
+    ? {
+      kind: "npx",
+      command: shell,
+      prefix: ["-lic", LOGIN_SHELL_EXEC, "npx", "-y", NPX_DSH_PACKAGE],
+    }
+    : undefined;
+  return { node, dsh, npx, launcher };
+}
+
+function buildToolProbeScript(): string {
+  return ["node", "dsh", "npx"].map((tool) =>
+    `if command -v ${tool} >/dev/null 2>&1; then ` +
+    `printf '${TOOL_PROBE_MARKER}${tool}.command=%s\\n' "$(command -v ${tool})"; ` +
+    `if version="$(${tool} --version 2>/dev/null)"; then ` +
+    `printf '${TOOL_PROBE_MARKER}${tool}.version=%s\\n' "$version"; fi; fi`
+  ).join("; ");
+}
+
+function toolInfo(values: Record<string, string>, tool: string): LocalToolInfo | undefined {
+  const command = values[`${tool}.command`];
+  const version = values[`${tool}.version`];
+  return command && version ? { command, version } : undefined;
+}
+
+async function probeWindowsEnvironment(
+  probe: (command: string, args: string[]) => Promise<CommandProbeOutput>,
+  resolveCommands: (commands: string[]) => Promise<Record<string, string>>,
+): Promise<LocalDshEnvironment> {
   const nodeName = "node";
-  const dshName = `dsh${commandExtension}`;
-  const npxName = `npx${commandExtension}`;
+  const dshName = "dsh.cmd";
+  const npxName = "npx.cmd";
   const [directDsh, directNpx, resolved] = await Promise.all([
     probeLocalTool(dshName, probe),
     probeLocalTool(npxName, probe),
@@ -175,47 +235,21 @@ async function probeLocalTool(
   return version ? { info: { command, version }, missing: false } : { missing: false };
 }
 
-async function resolveCommandPaths(
-  commands: string[],
-  os: typeof Deno.build.os,
-): Promise<Record<string, string>> {
+async function resolveWindowsCommandPaths(commands: string[]): Promise<Record<string, string>> {
   const validCommands = commands.filter((command) => /^[a-z0-9._-]+$/iu.test(command));
-  if (os === "windows") {
-    const entries = await Promise.all(validCommands.map(async (command) => {
-      try {
-        const result = await runHiddenCommand("where.exe", [command], COMMAND_PATH_TIMEOUT_MS);
-        const path = result.stdout
-          .split(/\r?\n/u)
-          .map((line) => line.trim())
-          .find((line) => /^[a-z]:[\\/]/iu.test(line));
-        return path ? [command, path] as const : undefined;
-      } catch {
-        return undefined;
-      }
-    }));
-    return Object.fromEntries(entries.filter((entry) => entry !== undefined));
-  }
-
-  const shell = Deno.env.get("SHELL") ?? (os === "darwin" ? "/bin/zsh" : "/bin/sh");
-  const marker = "__DSH_DESKTOP_COMMAND__";
-  const script = validCommands
-    .map((command) => `command -v ${command} | sed 's#^#${marker}${command}=#'`)
-    .join("; ");
-  try {
-    const result = await runHiddenCommand(shell, ["-lic", script], COMMAND_PATH_TIMEOUT_MS);
-    const resolved: Record<string, string> = {};
-    for (const line of result.stdout.split(/\r?\n/u).map((value) => value.trim())) {
-      if (!line.startsWith(marker)) continue;
-      const separator = line.indexOf("=", marker.length);
-      if (separator < 0) continue;
-      const command = line.slice(marker.length, separator);
-      const path = line.slice(separator + 1);
-      if (validCommands.includes(command) && path.startsWith("/")) resolved[command] = path;
+  const entries = await Promise.all(validCommands.map(async (command) => {
+    try {
+      const result = await runHiddenCommand("where.exe", [command], COMMAND_PATH_TIMEOUT_MS);
+      const path = result.stdout
+        .split(/\r?\n/u)
+        .map((line) => line.trim())
+        .find((line) => /^[a-z]:[\\/]/iu.test(line));
+      return path ? [command, path] as const : undefined;
+    } catch {
+      return undefined;
     }
-    return resolved;
-  } catch {
-    return {};
-  }
+  }));
+  return Object.fromEntries(entries.filter((entry) => entry !== undefined));
 }
 
 export async function startLocalDshWeb(

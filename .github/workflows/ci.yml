@@ -52,10 +52,19 @@ jobs:
       - name: Run source checks and unit tests
         run: deno task check
 
+  toolchain-mise:
+    uses: ./.github/workflows/toolchain-mise.yml
+
+  toolchain-nvm:
+    uses: ./.github/workflows/toolchain-nvm.yml
+
   package:
     name: Package / ${{ matrix.name }}
     if: github.event_name != 'pull_request'
-    needs: test
+    needs:
+      - test
+      - toolchain-mise
+      - toolchain-nvm
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
