@@ -1,6 +1,6 @@
 import { assertEquals, assertThrows } from "@std/assert";
 import { resolveAppPaths } from "../src/app_paths.ts";
-import { directoryOpenCommand } from "../src/open_directory.ts";
+import { directoryOpenCommand, externalUrlOpenCommand } from "../src/open_directory.ts";
 import { setWindowsWindowIcon } from "../src/windows_window_icon.ts";
 import { env } from "./test_helpers.ts";
 
@@ -75,4 +75,12 @@ Deno.test("directoryOpenCommand uses each platform's standard file manager", () 
     command: "xdg-open",
     args: ["/home/alice/logs"],
   });
+});
+
+Deno.test("externalUrlOpenCommand opens HTTPS URLs with the platform file manager", () => {
+  const url = "https://github.com/Diluka/dsh-desktop-app/releases/tag/latest";
+  assertEquals(externalUrlOpenCommand("windows", url), { command: "explorer.exe", args: [url] });
+  assertEquals(externalUrlOpenCommand("darwin", url), { command: "open", args: [url] });
+  assertEquals(externalUrlOpenCommand("linux", url), { command: "xdg-open", args: [url] });
+  assertThrows(() => externalUrlOpenCommand("linux", "file:///etc/passwd"), Error, "HTTPS");
 });

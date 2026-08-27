@@ -369,6 +369,25 @@
       font-weight: 600;
     }
 
+    .update-banner {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+      padding: 10px 14px;
+      border: 1px solid var(--brand);
+      border-radius: 10px;
+      background: var(--surface);
+      color: var(--text);
+      font-size: 13px;
+      line-height: 20px;
+    }
+
+    .update-banner-message {
+      flex: 1;
+      color: var(--text-secondary);
+    }
+
     .local-environment {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -833,6 +852,14 @@
         <div class="workspace-inner">
           <div id="notice" class="notice" role="alert" hidden></div>
 
+          <div id="update-banner" class="update-banner" role="status" hidden>
+            <span class="update-banner-message">发现新版本</span>
+            <button id="update-open-release" class="button small primary"
+              type="button">查看更新</button>
+            <button id="update-dismiss" class="button small" type="button"
+              aria-label="忽略本次更新">忽略</button>
+          </div>
+
           <section id="remote-mode-panel" class="mode-panel" aria-labelledby="remote-mode-title">
             <header class="workspace-header">
               <div>
@@ -984,6 +1011,8 @@
         editingId: null,
         mode: "remote",
         ready: false,
+        updatesSupported: false,
+        updateBusy: false,
       };
       var modeButtons = Array.from(document.querySelectorAll(".mode-option"));
       var remoteModePanel = document.getElementById("remote-mode-panel");
@@ -1001,6 +1030,8 @@
       var localCancelRequested = false;
       var deleteConfirmation = document.getElementById("delete-confirmation");
       var deleteConfirmationMessage = document.getElementById("delete-confirmation-message");
+      var updateBanner = document.getElementById("update-banner");
+      var updateDismissed = false;
       var toastTimer;
       var themeMedia = window.matchMedia("(prefers-color-scheme: dark)");
       var themeButtons = Array.from(document.querySelectorAll(".theme-option"));
@@ -1033,6 +1064,13 @@
       document.getElementById("close-editor").addEventListener("click", closeEditor);
       document.getElementById("cancel-editor").addEventListener("click", closeEditor);
       document.getElementById("open-log-directory").addEventListener("click", openLogDirectory);
+      document.getElementById("update-open-release").addEventListener("click", function () {
+        void openUpdateReleasePage();
+      });
+      document.getElementById("update-dismiss").addEventListener("click", function () {
+        updateDismissed = true;
+        hideUpdateBanner();
+      });
       form.addEventListener("submit", saveProfile);
 
       bootstrap();
@@ -1106,6 +1144,7 @@
         state.profiles = data.profiles;
         state.ssh = data.ssh;
         state.localEnvironment = data.localEnvironment;
+        state.updatesSupported = Boolean(data.updatesSupported);
         if (firstBootstrap) setMode(data.mode, false);
         state.ready = true;
         document.getElementById("add-server").disabled = false;
@@ -1117,6 +1156,35 @@
         renderSshStatus();
         renderLocalEnvironment();
         renderProfiles();
+        if (firstBootstrap && state.updatesSupported) void checkForUpdate();
+      }
+
+      async function checkForUpdate() {
+        if (!state.updatesSupported || state.updateBusy) return;
+        state.updateBusy = true;
+        try {
+          var update = await globalThis.bindings.checkForUpdate();
+          if (update.available && !updateDismissed) {
+            updateBanner.hidden = false;
+          }
+        } catch (error) {
+          // 静默失败：自动检查不打断用户，详细原因由后端日志记录。
+        } finally {
+          state.updateBusy = false;
+        }
+      }
+
+      function hideUpdateBanner() {
+        updateBanner.hidden = true;
+      }
+
+      async function openUpdateReleasePage() {
+        try {
+          await globalThis.bindings.openUpdateReleasePage();
+          showToast("已打开下载页面");
+        } catch (error) {
+          showToast(errorMessage(error));
+        }
       }
 
       function renderSshStatus() {
