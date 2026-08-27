@@ -11,7 +11,7 @@ Deno.test("shell html has key elements and parseable inline scripts", () => {
       "remote-port",
       "server-list",
       "toast",
-      "check-update",
+      "auto-update-switch",
       "update-status",
     ]
   ) {
@@ -30,7 +30,7 @@ Deno.test("shell waits for backend bindings before enabling actions", () => {
   assertMatch(SHELL_HTML, /<button id="start-local"[^>]*disabled>/u);
   assertMatch(SHELL_HTML, /<button id="add-server"[^>]*disabled>/u);
   assertMatch(SHELL_HTML, /<button id="open-log-directory"[^>]*disabled>/u);
-  assertMatch(SHELL_HTML, /<button id="check-update"[^>]*disabled>/u);
+  assertMatch(SHELL_HTML, /<input id="auto-update-switch"[^>]+role="switch"[^>]*disabled>/u);
   assertMatch(SHELL_HTML, /No binding for 'bootstrap'/u);
   assertMatch(SHELL_HTML, /state\.ready = true/u);
   assertMatch(SHELL_HTML, /function applyBootstrapData\(data\)/u);
@@ -43,9 +43,9 @@ Deno.test("shell waits for backend bindings before enabling actions", () => {
   assertMatch(SHELL_HTML, /logButton\.disabled = false/u);
   assertMatch(SHELL_HTML, /logButton\.title = data\.logDirectory/u);
   assertMatch(SHELL_HTML, /<div class="runtime-note">[\s\S]*id="open-log-directory"/u);
-  assertMatch(SHELL_HTML, /id="check-update"[\s\S]*id="update-status"/u);
-  assertMatch(SHELL_HTML, /function checkForUpdate\(automatic\)/u);
-  assertMatch(SHELL_HTML, /openUpdateReleasePage\(\)/u);
+  assertMatch(SHELL_HTML, /id="auto-update-row"[\s\S]*id="update-status"/u);
+  assertMatch(SHELL_HTML, /state\.autoUpdateEnabled = Boolean\(enabled\)/u);
+  assertMatch(SHELL_HTML, /localStorage\.getItem\("dsh-desktop-auto-update"\) === "on"/u);
   assertFalse(/id="log-directory"/u.test(SHELL_HTML));
 });
 
@@ -88,6 +88,8 @@ Deno.test("shell renders Unicode delete confirmation in-page", () => {
     /<dialog id="update-confirmation"[^>]+aria-modal="true"[^>]*>/u,
   );
   assertMatch(SHELL_HTML, /function askAboutUpdate\(/u);
+  assertMatch(SHELL_HTML, /openUpdateReleasePage\(\)/u);
+  assertMatch(SHELL_HTML, /自动更新已关闭。点击确定打开 Release 页面手动下载。/u);
 });
 
 Deno.test("handleShellRequest serves safe shell responses without local tunnel internals", async () => {

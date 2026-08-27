@@ -22,8 +22,8 @@ DSH Desktop 是 DSH Web 的跨平台桌面入口。它可以直接运行本机�
 - **远程模式**：复用用户的 OpenSSH 配置、密钥、`ssh-agent`、`ProxyJump` 和主机密钥策略。
 - **原生桌面窗口**：Windows 提供 CEF 与 WebView2 两种版本，macOS 和 Linux 使用 CEF。
 - **持久化入口**：保存远程服务器、连接模式和最近使用的远程项目。
-- **更新检查**：Windows/macOS 发行包会比对 `latest` Release 的来源
-  commit，发现新版本时提示打开下载页。
+- **自动更新**：Windows/macOS 发行包会比对 `latest` Release 的来源
+  commit；开关默认关闭，只提示并打开下载页，开启后才下载并安装对应架构和后端的新版包。
 
 > [!IMPORTANT]
 > 项目基于实验性的 `deno desktop`。
@@ -45,7 +45,7 @@ Windows 和 macOS 用户可以从
 
 包名、后端区别、macOS
 首次启动方式和更新规则见[发布制品说明](docs/RELEASE_ARTIFACTS.md)。发行包会在构建前写入来源 commit
-id；开发构建保持 `development`，不会检查更新。
+id；开发构建保持 `development`，不会自动更新。
 
 ## 快速使用
 

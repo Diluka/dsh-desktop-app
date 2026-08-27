@@ -275,6 +275,58 @@
     .runtime-log-button:hover:not(:disabled) strong {
       color: var(--text);
     }
+    .runtime-switch-row {
+      padding: 4px 0;
+      cursor: pointer;
+    }
+    .runtime-switch-row[aria-disabled="true"] {
+      cursor: default;
+      opacity: 0.65;
+    }
+    .runtime-switch-control {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .runtime-switch-shell {
+      position: relative;
+      display: inline-flex;
+      width: 34px;
+      height: 18px;
+    }
+    .runtime-switch-shell input {
+      position: absolute;
+      inset: 0;
+      margin: 0;
+      opacity: 0;
+    }
+    .runtime-switch-toggle {
+      width: 100%;
+      border-radius: 999px;
+      background: var(--border-hover);
+      transition: background 140ms ease;
+    }
+    .runtime-switch-toggle::after {
+      display: block;
+      width: 14px;
+      height: 14px;
+      margin: 2px;
+      border-radius: 50%;
+      background: var(--surface);
+      box-shadow: 0 1px 3px rgb(0 0 0 / 0.22);
+      transition: transform 140ms ease;
+      content: "";
+    }
+    .runtime-switch-shell input:checked + .runtime-switch-toggle {
+      background: var(--brand);
+    }
+    .runtime-switch-shell input:checked + .runtime-switch-toggle::after {
+      transform: translateX(16px);
+    }
+    .runtime-switch-shell input:focus-visible + .runtime-switch-toggle {
+      outline: 2px solid var(--focus-ring);
+      outline-offset: 2px;
+    }
 
     .workspace {
       min-width: 0;
@@ -825,10 +877,18 @@
               title="日志目录正在初始化..." aria-label="打开日志目录" disabled>
               <span>日志</span><strong>打开目录</strong>
             </button>
-            <button id="check-update" class="runtime-row runtime-log-button" type="button"
-              title="检查更新" aria-label="检查更新" disabled>
-              <span>更新</span><strong id="update-status">不可用</strong>
-            </button>
+            <label id="auto-update-row" class="runtime-row runtime-switch-row"
+              title="自动更新默认关闭" aria-disabled="true">
+              <span>自动更新</span>
+              <span class="runtime-switch-control">
+                <strong id="update-status">关闭</strong>
+                <span class="runtime-switch-shell">
+                  <input id="auto-update-switch" type="checkbox" role="switch"
+                    aria-label="自动更新" disabled>
+                  <span class="runtime-switch-toggle" aria-hidden="true"></span>
+                </span>
+              </span>
+            </label>
           </div>
         </div>
       </aside>
@@ -1000,6 +1060,7 @@
         mode: "remote",
         ready: false,
         updatesSupported: false,
+        autoUpdateEnabled: readAutoUpdatePreference(),
         updateBusy: false,
       };
       var modeButtons = Array.from(document.querySelectorAll(".mode-option"));
@@ -1007,6 +1068,8 @@
       var localModePanel = document.getElementById("local-mode-panel");
       var connectionBackend = document.getElementById("connection-backend");
       var diagnosticNote = document.getElementById("diagnostic-note");
+      var autoUpdateRow = document.getElementById("auto-update-row");
+      var autoUpdateSwitch = document.getElementById("auto-update-switch");
       var list = document.getElementById("server-list");
       var empty = document.getElementById("empty-state");
       var editor = document.getElementById("editor");
@@ -1054,12 +1117,32 @@
       document.getElementById("close-editor").addEventListener("click", closeEditor);
       document.getElementById("cancel-editor").addEventListener("click", closeEditor);
       document.getElementById("open-log-directory").addEventListener("click", openLogDirectory);
-      document.getElementById("check-update").addEventListener("click", function () {
-        void checkForUpdate(false);
+      autoUpdateSwitch.addEventListener("change", function () {
+        setAutoUpdateEnabled(autoUpdateSwitch.checked, true);
       });
       form.addEventListener("submit", saveProfile);
 
       bootstrap();
+
+      function readAutoUpdatePreference() {
+        try {
+          return localStorage.getItem("dsh-desktop-auto-update") === "on";
+        } catch (_) {
+          return false;
+        }
+      }
+
+      function setAutoUpdateEnabled(enabled, persist) {
+        state.autoUpdateEnabled = Boolean(enabled);
+        autoUpdateSwitch.checked = state.autoUpdateEnabled;
+        if (persist) {
+          try {
+            localStorage.setItem("dsh-desktop-auto-update", state.autoUpdateEnabled ? "on" : "off");
+          } catch (_) {}
+        }
+        renderUpdateStatus(state.autoUpdateEnabled ? "自动" : "关闭");
+        if (persist && state.autoUpdateEnabled && state.updatesSupported) void checkForUpdate(false);
+      }
 
       function applyTheme(preference, persist) {
         if (preference !== "light" && preference !== "dark" && preference !== "system") {
@@ -1133,13 +1216,16 @@
         state.updatesSupported = Boolean(data.updatesSupported);
         if (firstBootstrap) setMode(data.mode, false);
         state.ready = true;
+        autoUpdateSwitch.checked = state.updatesSupported && state.autoUpdateEnabled;
         document.getElementById("add-server").disabled = false;
         var logButton = document.getElementById("open-log-directory");
         logButton.disabled = false;
         logButton.title = data.logDirectory;
         logButton.setAttribute("aria-label", "打开日志目录：" + data.logDirectory);
         document.getElementById("browser-backend").textContent = data.browserBackend;
-        renderUpdateStatus(state.updatesSupported ? "可检查" : "不可用");
+        renderUpdateStatus(
+          state.updatesSupported ? state.autoUpdateEnabled ? "自动" : "关闭" : "不可用",
+        );
         renderSshStatus();
         renderLocalEnvironment();
         renderProfiles();
@@ -1147,8 +1233,12 @@
       }
 
       function renderUpdateStatus(message) {
-        var button = document.getElementById("check-update");
-        button.disabled = !state.updatesSupported || state.updateBusy;
+        var disabled = !state.updatesSupported || state.updateBusy;
+        autoUpdateSwitch.disabled = disabled;
+        autoUpdateRow.setAttribute("aria-disabled", String(disabled));
+        autoUpdateRow.title = state.updatesSupported
+          ? state.autoUpdateEnabled ? "自动更新已开启" : "自动更新已关闭；有新版本时打开下载页"
+          : "当前构建不支持更新";
         document.getElementById("update-status").textContent = message;
       }
 
@@ -1177,7 +1267,19 @@
             return;
           }
           renderUpdateStatus("发现新版本");
-          if (await askAboutUpdate("发现新版本", "点击确定打开 Release 页面手动下载。", "打开下载页")) {
+          if (state.autoUpdateEnabled) {
+            if (await askAboutUpdate("发现新版本", "发现新版本，是否立即下载？", "下载更新")) {
+              await downloadUpdate();
+            }
+            return;
+          }
+          if (
+            await askAboutUpdate(
+              "发现新版本",
+              "自动更新已关闭。点击确定打开 Release 页面手动下载。",
+              "打开下载页",
+            )
+          ) {
             try {
               await globalThis.bindings.openUpdateReleasePage();
               renderUpdateStatus("手动下载");
@@ -1191,6 +1293,26 @@
           if (!automatic) showToast(errorMessage(error));
         } finally {
           state.updateBusy = false;
+          renderUpdateStatus(document.getElementById("update-status").textContent);
+        }
+      }
+
+      async function downloadUpdate() {
+        renderUpdateStatus("下载中");
+        try {
+          var update = await globalThis.bindings.downloadUpdate();
+          if (!update.available) {
+            renderUpdateStatus("已是最新");
+            return;
+          }
+          renderUpdateStatus("等待重启");
+          if (await askAboutUpdate("更新已下载", "更新已下载完成。现在重启并安装更新？", "重启更新")) {
+            await globalThis.bindings.restartToUpdate();
+          }
+        } catch (error) {
+          renderUpdateStatus("下载失败");
+          showToast(errorMessage(error));
+        } finally {
           renderUpdateStatus(document.getElementById("update-status").textContent);
         }
       }
