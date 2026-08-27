@@ -16,6 +16,7 @@ Deno.test("resolveAppPaths uses the native platform path rules", () => {
       {
         configFile: "C:\\Users\\Alice\\AppData\\Roaming\\dsh-desktop\\servers.json",
         logDirectory: "C:\\Users\\Alice\\AppData\\Local\\dsh-desktop\\logs",
+        updateDirectory: "C:\\Users\\Alice\\AppData\\Local\\dsh-desktop\\updates",
       },
     );
     return;
@@ -25,6 +26,7 @@ Deno.test("resolveAppPaths uses the native platform path rules", () => {
     assertEquals(resolveAppPaths(env({ HOME: "/Users/alice" })), {
       configFile: "/Users/alice/Library/Application Support/dsh-desktop/servers.json",
       logDirectory: "/Users/alice/Library/Logs/dsh-desktop",
+      updateDirectory: "/Users/alice/Library/Logs/dsh-desktop/updates",
     });
     return;
   }
@@ -38,11 +40,13 @@ Deno.test("resolveAppPaths uses the native platform path rules", () => {
     {
       configFile: "/cfg/dsh-desktop/servers.json",
       logDirectory: "/state/dsh-desktop/logs",
+      updateDirectory: "/state/dsh-desktop/updates",
     },
   );
   assertEquals(resolveAppPaths(env({ HOME: "/home/alice" })), {
     configFile: "/home/alice/.config/dsh-desktop/servers.json",
     logDirectory: "/home/alice/.local/state/dsh-desktop/logs",
+    updateDirectory: "/home/alice/.local/state/dsh-desktop/updates",
   });
 });
 

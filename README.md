@@ -97,8 +97,10 @@ deno task package:macos:x86_64   # Intel .app tar.gz
 Deno 会按目标平台下载并校验对应 backend；CEF 首次构建较慢且产物体积较大，WebView2 使用系统 Runtime。
 两个 Windows ZIP 与两个 macOS `.app` tar.gz 均在 Linux 交叉编译打包；目标系统 CI 只运行源码检查和
 单元测试。Windows 构建会使用固定版本的 `resedit` 把 ICO 写入 launcher 的 PE 资源，因为 Deno 2.9 的
-`--icon` 只复制旁置 `AppIcon.ico`。Windows 发布产物都是完整应用目录 ZIP，无需安装或管理员权限；关闭
-应用后用同后端的新目录覆盖即可更新。GUI 行为仍需在目标系统验证。
+`--icon` 只复制旁置 `AppIcon.ico`。Windows 发布产物都是完整应用目录
+ZIP，无需安装或管理员权限。发行包在 构建前写入来源 commit id；已安装的 Windows/macOS
+发行包可从选择服务器页检查、下载对应后端/架构的更新，
+确认后重启，由独立更新进程在退出后解压、替换并重新启动应用。GUI 行为仍需在目标系统验证。
 
 Linux 构建和 AppImage 任务继续保留给源码用户自行执行；CI 与 `latest` Release 不提供 Linux 预构建包。
 
@@ -108,9 +110,10 @@ Linux 构建和 AppImage 任务继续保留给源码用户自行执行；CI 与 
 `main` 流水线会覆盖其中的同名分发产物。各文件的用途与安装方式见
 [发布制品说明](docs/RELEASE_ARTIFACTS.md)。
 
-`main` 的 CI 依次执行四平台测试、Windows/macOS 四种分发产物构建和 `latest` Release
-更新。只有前一阶段全部成功才会进入下一阶段；任何测试或打包失败都会保留上一版 Release。Pull Request
-只运行测试，不发布产物。
+`main` 的 CI 依次执行四平台测试、Windows/macOS 四种分发产物构建和 `latest` Release 更新。客户端通过
+GitHub Release API 读取该 release 的 `target_commitish`，仅在它与嵌入发行包的 commit id
+不一致时下载更新。只有前一阶段全部成功才会进入下一阶段；任何测试或打包失败都会保留上一版
+Release。Pull Request 只运行测试，不发布产物。
 
 ## 日志
 

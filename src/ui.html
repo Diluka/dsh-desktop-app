@@ -715,6 +715,8 @@
             <div
               class="runtime-row"><span>浏览器</span><strong id="browser-backend">Chromium / CEF</strong></div>
             <div class="runtime-row"><span>连接</span><strong>OpenSSH</strong></div>
+            <div
+              class="runtime-row"><span>更新</span><strong id="update-status">检查中</strong></div>
           </div>
         </div>
       </aside>
@@ -726,7 +728,10 @@
               <h2>选择服务器</h2>
               <p class="page-description">通过 SSH Host 建立安全连接。</p>
             </div>
-            <button id="add-server" class="button primary" type="button">添加服务器</button>
+            <div class="server-actions">
+              <button id="check-update" class="button secondary" type="button">检查更新</button>
+              <button id="add-server" class="button primary" type="button">添加服务器</button>
+            </div>
           </header>
 
           <div id="notice" class="notice" role="alert" hidden></div>
@@ -823,7 +828,7 @@
     (function () {
       "use strict";
 
-      var state = { profiles: [], ssh: { available: false }, editingId: null };
+      var state = { profiles: [], ssh: { available: false }, editingId: null, updatesSupported: false };
       var list = document.getElementById("server-list");
       var empty = document.getElementById("empty-state");
       var editor = document.getElementById("editor");
@@ -857,6 +862,9 @@
       document.getElementById("close-editor").addEventListener("click", closeEditor);
       document.getElementById("cancel-editor").addEventListener("click", closeEditor);
       document.getElementById("open-log-directory").addEventListener("click", openLogDirectory);
+      document.getElementById("check-update").addEventListener("click", function () {
+        void checkForUpdate(false);
+      });
       form.addEventListener("submit", saveProfile);
 
       bootstrap();
@@ -892,13 +900,66 @@
           state.ssh = data.ssh;
           document.getElementById("log-directory").textContent = data.logDirectory;
           document.getElementById("browser-backend").textContent = data.browserBackend;
+          state.updatesSupported = data.updatesSupported;
           renderSshStatus();
+          renderUpdateStatus(data.updatesSupported ? "可检查" : "不可用");
           renderProfiles();
           if (data.startupNotice) showNotice(data.startupNotice);
           if (!state.profiles.length) openEditor();
+          if (data.updatesSupported) void checkForUpdate(true);
         } catch (error) {
           showNotice(errorMessage(error));
           document.getElementById("server-count").textContent = "配置读取失败";
+        }
+      }
+
+      function renderUpdateStatus(message) {
+        var button = document.getElementById("check-update");
+        button.disabled = !state.updatesSupported;
+        document.getElementById("update-status").textContent = message;
+      }
+
+      async function checkForUpdate(automatic) {
+        if (!state.updatesSupported) return;
+        var button = document.getElementById("check-update");
+        button.disabled = true;
+        renderUpdateStatus("检查中");
+        try {
+          var update = await globalThis.bindings.checkForUpdate();
+          if (!update.available) {
+            renderUpdateStatus("已是最新");
+            if (!automatic) showToast("当前已经是最新版本");
+            return;
+          }
+          renderUpdateStatus("发现新版本");
+          if (confirm("发现新版本，是否立即下载？")) await downloadUpdate();
+        } catch (error) {
+          renderUpdateStatus("检查失败");
+          if (!automatic) showToast(errorMessage(error));
+        } finally {
+          button.disabled = !state.updatesSupported;
+        }
+      }
+
+      async function downloadUpdate() {
+        var button = document.getElementById("check-update");
+        button.disabled = true;
+        renderUpdateStatus("下载中");
+        try {
+          var update = await globalThis.bindings.downloadUpdate();
+          if (!update.available) {
+            renderUpdateStatus("已是最新");
+            return;
+          }
+          renderUpdateStatus("等待重启");
+          if (confirm("更新已下载完成。现在重启并安装更新？")) {
+            await globalThis.bindings.restartToUpdate();
+          }
+        } catch (error) {
+          renderUpdateStatus("下载失败");
+          showToast(errorMessage(error));
+        } finally {
+          button.disabled = !state.updatesSupported;
         }
       }
 
