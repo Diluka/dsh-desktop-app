@@ -165,10 +165,41 @@ async function probeWindowsTool(
   probe: (command: string, args: string[]) => Promise<CommandProbeOutput>,
 ): Promise<LocalToolProbeResult> {
   for (const command of candidates) {
+    if (command.toLowerCase().endsWith(".ps1")) {
+      // powershell -File does not search PATH for a bare script name, so resolve
+      // the shim's absolute path first. Launching the .ps1 through PowerShell
+      // keeps `node` a direct child so taskkill /t can terminate the whole tree.
+      const path = await resolveWindowsPs1Path(command, probe);
+      if (!path) continue;
+      const result = await probeLocalTool(path, probe);
+      if (result.info) return result;
+      continue;
+    }
+    // .cmd shims are resolved by cmd.exe through the bare name on PATH.
     const result = await probeLocalTool(command, probe);
     if (result.info) return result;
   }
   return { missing: true };
+}
+
+async function resolveWindowsPs1Path(
+  name: string,
+  probe: (command: string, args: string[]) => Promise<CommandProbeOutput>,
+): Promise<string | undefined> {
+  try {
+    const output = await probe("powershell.exe", [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      `(Get-Command ${name} -ErrorAction SilentlyContinue).Source`,
+    ]);
+    return output.stdout
+      .split(/\r?\n/u)
+      .map((line) => line.trim())
+      .find((line) => /^[a-z]:[\\/]/iu.test(line));
+  } catch {
+    return undefined;
+  }
 }
 
 async function probeLocalTool(

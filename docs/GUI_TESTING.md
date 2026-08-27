@@ -199,6 +199,12 @@ fallback。
 `local_dsh.exited` 且 `stopRequested` 为 `true`。npx 原始下载输出不会复制到 JSONL，仅写入对应的
 `.child.log`。
 
+> 没有安装 dsh 的机器上，可用 `scripts/fake_dsh_windows/` 里的 `fake-dsh.ps1` + `fake-dsh.js`
+> 单独验证进程树清理（不依赖真实 dsh）：用
+> `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File fake-dsh.ps1 web --host 127.0.0.1 --port 47890 --no-open`
+> 启动后，先 `taskkill /pid <powershell-pid> /f`（预期 node 残留，Windows 杀父不级联），再
+> `taskkill /pid <powershell-pid> /t /f`（预期 node 全部退出）。
+
 ## 回报模板
 
 请为每个平台提供：
