@@ -1,6 +1,6 @@
 import { assert, assertEquals, assertFalse, assertMatch, assertRejects } from "@std/assert";
 import { buildSshArguments, probeOpenSsh, startSshTunnel, TunnelError } from "../src/ssh_tunnel.ts";
-import { fakeChild, memoryLogger, profile, tickingClock } from "./test_helpers.ts";
+import { fakeChild, memoryLogger, profile, tempFile, tickingClock } from "./test_helpers.ts";
 
 Deno.test("buildSshArguments creates non-interactive loopback forwarding without clearing forwards", () => {
   const args = buildSshArguments({
@@ -99,7 +99,9 @@ Deno.test("startSshTunnel supports fake child ready path and stop lifecycle", as
 
 Deno.test("startSshTunnel retries LOCAL_PORT_BUSY and succeeds on a later attempt", async () => {
   const { logger } = await memoryLogger();
-  const busy = fakeChild("bind [127.0.0.1]:41001: Address already in use\n");
+  const busyOutput = await tempFile("busy.log");
+  await Deno.writeTextFile(busyOutput, "bind [127.0.0.1]:41001: Address already in use\n");
+  const busy = fakeChild(busyOutput);
   const ready = fakeChild();
   const allocatedPorts: number[] = [];
   let spawnCount = 0;
@@ -132,6 +134,11 @@ Deno.test("startSshTunnel retries LOCAL_PORT_BUSY and succeeds on a later attemp
 
 Deno.test("startSshTunnel throws LOCAL_PORT_BUSY after repeated local port conflicts", async () => {
   const { logger } = await memoryLogger();
+  const busyOutput = await tempFile("busy.log");
+  await Deno.writeTextFile(
+    busyOutput,
+    "channel_setup_fwd_listener_tcpip: cannot listen to port\n",
+  );
   let attempts = 0;
 
   const error = await assertRejects(
@@ -140,7 +147,7 @@ Deno.test("startSshTunnel throws LOCAL_PORT_BUSY after repeated local port confl
         allocatePort: () => Promise.resolve(41001 + attempts),
         spawn: () => {
           attempts += 1;
-          const child = fakeChild("channel_setup_fwd_listener_tcpip: cannot listen to port\n");
+          const child = fakeChild(busyOutput);
           child.finish({ success: false, code: 255, signal: null });
           return child;
         },
@@ -183,7 +190,7 @@ Deno.test("startSshTunnel stops tunnel and throws DSH_UNAVAILABLE when remote pr
   await child.status;
 });
 
-Deno.test("startSshTunnel logs only matched failure details", async () => {
+Deno.test("startSshTunnel keeps child output out of the app log", async () => {
   const { logger, filePath } = await memoryLogger();
   const error = await startAndClassify(
     "debug: connecting\nPermission denied (publickey).\n",
@@ -193,7 +200,7 @@ Deno.test("startSshTunnel logs only matched failure details", async () => {
 
   logger.flush();
   const log = await Deno.readTextFile(filePath);
-  assert(log.includes("Permission denied"));
+  assertFalse(log.includes("Permission denied"));
   assertFalse(log.includes("debug: connecting"));
 });
 
@@ -222,7 +229,9 @@ async function startAndClassify(
   stderr: string,
   logger: Awaited<ReturnType<typeof memoryLogger>>["logger"],
 ) {
-  const child = fakeChild(stderr);
+  const outputFile = await tempFile("ssh.log");
+  await Deno.writeTextFile(outputFile, stderr);
+  const child = fakeChild(outputFile);
   child.finish({ success: false, code: 255, signal: null });
 
   return await assertRejects(

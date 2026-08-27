@@ -1,5 +1,6 @@
 import { resolveAppPaths } from "./src/app_paths.ts";
 import { detectSystemLocale } from "./src/browser_locale.ts";
+import { readProcessOutputTail, spawnHiddenProcess } from "./src/hidden_process.ts";
 import { LocalDshError, type LocalDshWeb, startLocalDshWeb } from "./src/local_dsh.ts";
 import { createLogger } from "./src/logger.ts";
 import { openDirectory } from "./src/open_directory.ts";
@@ -33,6 +34,8 @@ async function startDesktopWithShellServer(
   const shellUrl = resolveShellUrl(shellServer.addr);
   const paths = resolveAppPaths();
   const logger = await createLogger(paths.logDirectory);
+  const spawnChild = (command: string, args: string[]) =>
+    spawnHiddenProcess(command, args, paths.logDirectory);
   logger.info({
     event: "app.start",
     version: Deno.version.deno,
@@ -197,7 +200,7 @@ async function startDesktopWithShellServer(
         activeLocal = undefined;
       }
       if (activeTunnel) await activeTunnel.stop();
-      const tunnel = await startSshTunnel(profile, logger);
+      const tunnel = await startSshTunnel(profile, logger, { spawn: spawnChild });
       activeTunnel = tunnel;
 
       // The DSH Web page must not inherit privileged bindings from the local selector.
@@ -236,7 +239,7 @@ async function startDesktopWithShellServer(
         await activeLocal.stop();
         activeLocal = undefined;
       }
-      const local = await startLocalDshWeb(logger);
+      const local = await startLocalDshWeb(logger, { spawn: spawnChild });
       activeLocal = local;
 
       // The DSH Web page must not inherit privileged bindings from the local selector.
@@ -269,13 +272,19 @@ async function startDesktopWithShellServer(
       code: exit.code,
       signal: exit.signal,
       stopRequested: exit.stopRequested,
+      childOutputFile: tunnel.outputFile,
+      ...(exit.error ? { err: exit.error } : {}),
     }, exit.stopRequested ? "SSH tunnel stopped" : "SSH tunnel exited unexpectedly");
 
+    if (exit.stopRequested) return;
     if (activeTunnel !== tunnel) return;
     activeTunnel = undefined;
     if (shuttingDown || window.isClosed()) return;
 
-    startupNotice = `与“${profileName}”的 SSH 连接已断开，请检查网络后重试。`;
+    const detail = lastOutputLine(await readProcessOutputTail(tunnel.outputFile));
+    startupNotice = detail
+      ? `与“${profileName}”的 SSH 连接已断开：${detail}`
+      : `与“${profileName}”的 SSH 连接已断开，请检查网络后重试。`;
     bindShell();
     window.navigate(shellUrl);
   }
@@ -287,13 +296,17 @@ async function startDesktopWithShellServer(
       code: exit.code,
       signal: exit.signal,
       stopRequested: exit.stopRequested,
+      childOutputFile: local.outputFile,
+      ...(exit.error ? { err: exit.error } : {}),
     }, exit.stopRequested ? "Local DSH Web stopped" : "Local DSH Web exited unexpectedly");
 
+    if (exit.stopRequested) return;
     if (activeLocal !== local) return;
     activeLocal = undefined;
     if (shuttingDown || window.isClosed()) return;
 
-    startupNotice = "本地 DSH Web 已退出，请重新启动。";
+    const detail = lastOutputLine(await readProcessOutputTail(local.outputFile));
+    startupNotice = detail ? `本地 DSH Web 已退出：${detail}` : "本地 DSH Web 已退出，请重新启动。";
     bindShell();
     window.navigate(shellUrl);
   }
@@ -316,6 +329,11 @@ async function startDesktopWithShellServer(
     closeAllowed = true;
     if (!window.isClosed()) window.close();
   }
+}
+
+function lastOutputLine(detail?: string): string | undefined {
+  const line = detail?.split(/\r?\n/u).at(-1)?.trim();
+  return line ? line.slice(0, 500) : undefined;
 }
 
 function resolveShellUrl(address: Deno.NetAddr): string {

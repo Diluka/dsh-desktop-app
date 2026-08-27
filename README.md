@@ -2,9 +2,9 @@
 
 [![CI](https://github.com/Diluka/dsh-desktop-app/actions/workflows/ci.yml/badge.svg)](https://github.com/Diluka/dsh-desktop-app/actions/workflows/ci.yml)
 
-DSH 的 Windows、Linux 与 macOS 桌面入口。首版提供远程模式：选择服务器后，应用调用本机 OpenSSH Client
-建立本地端口转发，再打开远端 DSH Web。Windows 同时提供内置 Chromium（CEF）与系统 WebView2 两种版本；
-Linux 和 macOS 使用 CEF。
+DSH 的 Windows、Linux 与 macOS 桌面入口。本地模式直接启动 PATH 中的 `dsh web`；远程模式调用本机
+OpenSSH Client 建立本地端口转发，再打开远端 DSH Web。Windows 同时提供内置 Chromium（CEF）与系统
+WebView2 两种版本；Linux 和 macOS 使用 CEF。
 
 > [!IMPORTANT]
 > `deno desktop` 从 Deno 2.9 开始提供，目前仍标记为 experimental。CEF 版本自带 Chromium、体积较大；
@@ -12,11 +12,12 @@ Linux 和 macOS 使用 CEF。
 
 ## 当前范围
 
+- 本地模式在自动选择的回环端口启动 `dsh web`，并在桌面窗口中打开。
 - 服务器配置保存 SSH Host/别名和远端 DSH Web 端口，端口默认 `3080`。
 - OpenSSH 自动读取 `~/.ssh/config`，原生支持其中的用户、端口、密钥、`ProxyJump` 和其他选项。
 - 本地转发只绑定 `127.0.0.1`，空闲端口由应用自动选择。
 - SSH 成功后移除选择页的本地 bindings，再导航到 DSH Web。
-- Pino JSONL 日志记录启动、配置、OpenSSH、隧道和退出生命周期。
+- Pino JSONL 日志记录启动、配置、本地 DSH、OpenSSH、隧道和退出生命周期。
 - CEF 与 WebView2 共用配置、SSH、日志和本地选择页；系统 locale 仅写入日志，界面语言使用 DSH
   已保存的偏好。
 - 支持 Windows x86_64 的 CEF/WebView2，以及 Linux x86_64、macOS arm64 与 macOS x86_64 CEF 构建。
@@ -29,8 +30,8 @@ Linux 和 macOS 使用 CEF。
 
 - [Deno 2.9+](https://docs.deno.com/runtime/desktop/)
 - Windows 10/11、现代 x86_64 Linux，或 Intel/Apple Silicon macOS
-- PATH 中可用的 OpenSSH Client（`ssh -V`）
-- 远端机器上已启动的 DSH Web
+- 本地模式需要 PATH 中可用的 DSH CLI（`dsh --version`）
+- 远程模式需要 PATH 中可用的 OpenSSH Client（`ssh -V`），且远端机器已启动 DSH Web
 
 Windows 缺少 `ssh` 时，可在“设置 → 系统 → 可选功能”中安装 **OpenSSH 客户端**。Debian/Ubuntu 可执行：
 
@@ -134,19 +135,24 @@ ssh.tunnel_exited
 app.stopped
 ```
 
-失败时重点查看 `ssh.stderr` 与 `ssh.connect_failed`。日志会对常见的
-password、passphrase、token、Bearer 凭据和私钥标记做持久化前脱敏，也不记录内部页面 URL；OpenSSH
-自己的诊断仍可能包含 Host、用户名或本地文件路径，外发前请按需脱敏。
+失败时先在 JSONL 中查看 `childOutputFile`，再检查对应的 `.child.log`。子进程正常运行时应用不读取
+该文件；只有启动失败或意外退出后才读取文件尾部，用于错误分类和界面提示。
+
+Pino JSONL 会对常见的 password、passphrase、token、Bearer 凭据和私钥标记做持久化前脱敏，也不记录
+内部页面 URL。`.child.log` 直接接收 `dsh` 或 OpenSSH 的原始 stdout/stderr，不经过脱敏，外发前请检查
+其中的 Host、用户名、本地路径和其他敏感内容。POSIX 平台创建文件时使用 `0600`；Windows 文件继承
+`%LOCALAPPDATA%\dsh-desktop\logs` 的访问控制列表。
 
 完整 GUI 验证与日志回传步骤见 [`docs/GUI_TESTING.md`](docs/GUI_TESTING.md)。
 
 ## 安全边界
 
-- SSH 通过 `child_process.spawn` 参数数组启动，不经过 shell；Windows 使用 `windowsHide: true`。
+- `dsh` 和 SSH 通过 `child_process.spawn` 参数数组启动，不经过 shell；Windows 使用
+  `windowsHide: true`。
 - 转发固定为 `127.0.0.1:<自动端口> -> 127.0.0.1:<远端 DSH 端口>`。
 - `BatchMode=yes` 防止无界面的密码提示卡住应用。
 - 主机密钥校验沿用用户 `.ssh/config` 与 OpenSSH 默认策略，应用不会降低现有策略。
-- 启动 OpenSSH 并完整继承其环境需要运行时 `run/env` 权限；代码只启动 `ssh`。
+- 启动 `dsh` 和 OpenSSH 并完整继承其环境需要运行时 `run/env` 权限。
 - Pino 加载时只额外开放 `sys.hostname`；文件日志的基础字段包含进程 `pid`。
 - Windows CEF 通过 FFI 加载系统目录中的 `user32.dll`，用于给原生窗口设置已打包的应用图标；远端页面
   没有 FFI binding。
@@ -162,7 +168,9 @@ assets/             SVG 源图、1024px PNG、Windows ICO 与 macOS ICNS
 scripts/            平台打包辅助脚本
 src/profiles.ts     服务器配置校验和持久化
 src/ssh_tunnel.ts   OpenSSH 探测、隧道和错误分类
-src/hidden_process.ts Windows 隐藏进程与安全生命周期适配
+src/local_dsh.ts    本地 DSH Web 启动、探测和错误分类
+src/loopback_http.ts 回环端口分配与 HTTP 就绪探测
+src/hidden_process.ts 隐藏进程、独立输出文件与退出状态适配
 src/open_directory.ts 系统文件管理器调用
 src/windows_window_icon.ts Windows 原生窗口图标
 src/browser_locale.ts 运行时系统 locale 检测
@@ -175,7 +183,6 @@ docs/               GUI 验证说明
 
 ## 已知限制
 
-- 本地模式尚未实现。
 - macOS `.app` 由 Linux 交叉构建，未进行 Apple Developer ID 签名或 notarization；真实 GUI
   行为仍等待实机验证。
 - SSH 密码与私钥 passphrase 不提供应用内交互，请通过 `ssh-agent`

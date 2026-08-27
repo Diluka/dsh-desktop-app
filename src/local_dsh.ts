@@ -1,8 +1,8 @@
 import type { Logger } from "pino";
 import {
-  drainProcessStderr,
   isCommandNotFoundError,
-  spawnHiddenProcess,
+  type ManagedHiddenProcess,
+  readProcessOutputTail,
 } from "./hidden_process.ts";
 import { allocateLoopbackPort, probeHttp } from "./loopback_http.ts";
 
@@ -23,31 +23,21 @@ export class LocalDshError extends Error {
   }
 }
 
-interface ChildProcessLike {
-  readonly status: Promise<{ success: boolean; code: number; signal: string | null }>;
-  readonly stderr: ReadableStream<Uint8Array>;
-  kill(signal?: Deno.Signal): void;
-}
-
 interface StartLocalDshOptions {
   readonly command?: string;
   readonly startupTimeoutMs?: number;
   readonly allocatePort?: () => Promise<number>;
-  readonly spawn?: (command: string, args: string[]) => ChildProcessLike;
+  readonly spawn: (command: string, args: string[]) => ManagedHiddenProcess;
   readonly probe?: (url: string) => Promise<void>;
   readonly delay?: (milliseconds: number) => Promise<void>;
   readonly now?: () => number;
-}
-
-interface LocalDshDiagnostics {
-  readonly codes: Set<LocalDshErrorCode>;
-  readonly details: string[];
 }
 
 export interface LocalDshExit {
   readonly success: boolean;
   readonly code: number;
   readonly signal: string | null;
+  readonly error?: Error;
   readonly stopRequested: boolean;
 }
 
@@ -56,16 +46,17 @@ export class LocalDshWeb {
   #finished = false;
   #stopRequested = false;
 
+  readonly outputFile: string;
+
   constructor(
     readonly url: string,
-    private readonly child: ChildProcessLike,
-    private readonly diagnosticsDone: Promise<void>,
+    private readonly child: ManagedHiddenProcess,
     private readonly delay: (milliseconds: number) => Promise<void>,
   ) {
+    this.outputFile = child.outputFile;
     this.exited = (async () => {
       const status = await child.status;
       this.#finished = true;
-      await this.diagnosticsDone;
       return {
         ...status,
         stopRequested: this.#stopRequested,
@@ -103,7 +94,7 @@ export function buildDshWebArguments(port: number): string[] {
 
 export async function startLocalDshWeb(
   logger: Logger,
-  options: StartLocalDshOptions = {},
+  options: StartLocalDshOptions,
 ): Promise<LocalDshWeb> {
   for (let attempt = 1; attempt <= MAX_LOCAL_PORT_ATTEMPTS; attempt++) {
     try {
@@ -122,7 +113,7 @@ async function startLocalDshAttempt(
 ): Promise<LocalDshWeb> {
   const command = options.command ?? "dsh";
   const allocatePort = options.allocatePort ?? allocateLoopbackPort;
-  const spawn = options.spawn ?? spawnLocalDsh;
+  const spawn = options.spawn;
   const probe = options.probe ?? probeHttp;
   const delay = options.delay ?? sleep;
   const now = options.now ?? Date.now;
@@ -135,7 +126,7 @@ async function startLocalDshAttempt(
     port: localPort,
   }, "Starting local DSH Web");
 
-  let child: ChildProcessLike;
+  let child: ManagedHiddenProcess;
   try {
     child = spawn(command, args);
   } catch (error) {
@@ -145,29 +136,22 @@ async function startLocalDshAttempt(
     throw error;
   }
 
-  const diagnostics: LocalDshDiagnostics = { codes: new Set(), details: [] };
-  const stderr = drainProcessStderr(child.stderr, (line) => {
-    collectLocalDshDiagnostic(diagnostics, line);
-  });
-  const web = new LocalDshWeb(
-    `http://127.0.0.1:${localPort}/`,
-    child,
-    stderr.done,
-    delay,
-  );
+  const web = new LocalDshWeb(`http://127.0.0.1:${localPort}/`, child, delay);
   const exitOutcome = web.exited.then((value) => ({
     kind: "exit" as const,
     value,
   }));
 
-  function failureFromExit(exit: LocalDshExit): LocalDshError {
-    const error = classifyLocalDshFailure(diagnostics);
+  async function failureFromExit(exit: LocalDshExit): Promise<LocalDshError> {
+    const detail = await readProcessOutputTail(web.outputFile);
+    const error = classifyLocalDshFailure(detail, exit.error);
     logger.warn({
       event: "local_dsh.failed",
       errorCode: error.code,
       childExitCode: exit.code,
       childSignal: exit.signal,
-      childErrorDetails: diagnostics.details,
+      childOutputFile: web.outputFile,
+      ...(exit.error ? { err: exit.error } : {}),
     }, "Local DSH Web failed");
     return error;
   }
@@ -181,12 +165,12 @@ async function startLocalDshAttempt(
         () => ({ kind: "retry" as const }),
       ),
     ]);
-    if (outcome.kind === "exit") throw failureFromExit(outcome.value);
+    if (outcome.kind === "exit") throw await failureFromExit(outcome.value);
     if (outcome.kind === "ready") {
-      stderr.stopCapturing();
       logger.info({
         event: "local_dsh.ready",
         port: localPort,
+        childOutputFile: web.outputFile,
         startupMs: Math.max(0, now() - startedAt),
       }, "Local DSH Web is ready");
       return web;
@@ -196,42 +180,31 @@ async function startLocalDshAttempt(
       exitOutcome,
       delay(150).then(() => ({ kind: "retry" as const })),
     ]);
-    if (pause.kind === "exit") throw failureFromExit(pause.value);
+    if (pause.kind === "exit") throw await failureFromExit(pause.value);
   }
 
   await web.stop();
+  logger.warn({
+    event: "local_dsh.unavailable",
+    childOutputFile: web.outputFile,
+  }, "Local DSH Web did not become ready");
   throw new LocalDshError(
     "DSH_WEB_UNAVAILABLE",
     "dsh web 已启动，但未在限定时间内响应；请查看日志。",
   );
 }
 
-function spawnLocalDsh(command: string, args: string[]): ChildProcessLike {
-  return spawnHiddenProcess(command, args);
-}
-
-function collectLocalDshDiagnostic(diagnostics: LocalDshDiagnostics, line: string): void {
-  let code: LocalDshErrorCode | undefined;
+function classifyLocalDshFailure(detail: string, processError?: Error): LocalDshError {
   if (
-    /EADDRINUSE|address already in use|cannot listen to port|listen .*127\.0\.0\.1/iu.test(line)
+    /EADDRINUSE|address already in use|cannot listen to port|listen .*127\.0\.0\.1/iu.test(
+      detail,
+    )
   ) {
-    code = "LOCAL_PORT_BUSY";
-  } else if (/\bENOENT\b|command not found|not found/iu.test(line)) {
-    code = "DSH_NOT_FOUND";
-  } else if (/\berror\b|failed|fatal|exception|panic/iu.test(line)) {
-    code = "DSH_WEB_FAILED";
-  }
-  if (!code) return;
-
-  diagnostics.codes.add(code);
-  if (diagnostics.details.length < 5) diagnostics.details.push(line.slice(0, 2_000));
-}
-
-function classifyLocalDshFailure(diagnostics: LocalDshDiagnostics): LocalDshError {
-  if (diagnostics.codes.has("LOCAL_PORT_BUSY")) {
     return new LocalDshError("LOCAL_PORT_BUSY", "本地端口刚被其他程序占用，正在重试");
   }
-  if (diagnostics.codes.has("DSH_NOT_FOUND")) {
+  if (
+    isCommandNotFoundError(processError) || /\bENOENT\b|command not found|not found/iu.test(detail)
+  ) {
     return new LocalDshError("DSH_NOT_FOUND", dshInstallHelp());
   }
   return new LocalDshError("DSH_WEB_FAILED", "dsh web 启动失败，详细信息已写入日志。");

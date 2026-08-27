@@ -1,6 +1,6 @@
 import { assert, assertEquals, assertMatch, assertRejects } from "@std/assert";
 import { buildDshWebArguments, LocalDshError, startLocalDshWeb } from "../src/local_dsh.ts";
-import { fakeChild, memoryLogger, tickingClock } from "./test_helpers.ts";
+import { fakeChild, memoryLogger, tempFile, tickingClock } from "./test_helpers.ts";
 
 Deno.test("buildDshWebArguments starts loopback web without opening a browser", () => {
   const args = buildDshWebArguments(45000);
@@ -47,7 +47,12 @@ Deno.test("startLocalDshWeb supports fake child ready path and stop lifecycle", 
 
 Deno.test("startLocalDshWeb retries when a selected port is claimed", async () => {
   const { logger, filePath } = await memoryLogger();
-  const busy = fakeChild("warming up\nlisten EADDRINUSE: address already in use 127.0.0.1:45001\n");
+  const busyOutput = await tempFile("busy.log");
+  await Deno.writeTextFile(
+    busyOutput,
+    "warming up\nlisten EADDRINUSE: address already in use 127.0.0.1:45001\n",
+  );
+  const busy = fakeChild(busyOutput);
   const ready = fakeChild();
   const allocatedPorts: number[] = [];
   let spawnCount = 0;
@@ -78,7 +83,7 @@ Deno.test("startLocalDshWeb retries when a selected port is claimed", async () =
 
   logger.flush();
   const log = await Deno.readTextFile(filePath);
-  assert(log.includes("EADDRINUSE"));
+  assert(!log.includes("EADDRINUSE"));
   assert(!log.includes("warming up"));
 });
 

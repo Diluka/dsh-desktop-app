@@ -144,8 +144,9 @@ tail -f "$(ls -t "$log_dir"/dsh-desktop-*.jsonl | head -n 1)"
 - 无法认证的测试 Host
 - 正确 SSH Host + 错误 DSH Web 端口
 
-预期应用停留或返回选择页，给出可操作的中文错误；日志包含 `ssh.stderr` 和
-`ssh.connect_failed`，应用不崩溃、不残留长期运行的 `ssh` 子进程。
+预期应用停留或返回选择页，给出可操作的中文错误；JSONL 包含 `ssh.tunnel_failed`、
+`ssh.connect_failed` 和 `childOutputFile`，对应 `.child.log` 保留 OpenSSH 原始输出。应用不崩溃、
+不残留长期运行的 `ssh` 子进程，原始输出也不应出现在 JSONL 中。
 
 ### 6. 断线返回
 
@@ -196,8 +197,10 @@ OS / 版本：
 失败场景：
 复现步骤：
 可见错误：
-日志文件：
+JSONL 日志文件：
+子进程 `.child.log`：
 ```
 
-日志优先提供失败进程对应 JSONL 文件中的完整事件。外发前可脱敏 SSH Host、用户名和本地路径；保留
+日志优先提供失败进程对应 JSONL 文件中的完整事件，并按 `childOutputFile` 附上对应的 `.child.log`。
+子进程日志是未经脱敏的原始输出，外发前检查 SSH Host、用户名、本地路径和其他敏感内容；JSONL 保留
 `event`、`time`、`msg`、错误类别、退出码和事件顺序。
