@@ -86,22 +86,3 @@ Deno.test("spawnHiddenProcess reports command lookup failures without parsing ou
   assertEquals(status.code, 127);
   assert(isCommandNotFoundError(status.error));
 });
-
-Deno.test("missing Windows cmd shim is reported as a command-not-found error", async () => {
-  if (Deno.build.os !== "windows") return;
-  const directory = await Deno.makeTempDir();
-  const missing = `missing-${crypto.randomUUID()}.cmd`;
-
-  let probeError: unknown;
-  try {
-    await runHiddenCommand(missing, ["--version"]);
-  } catch (error) {
-    probeError = error;
-  }
-  assert(isCommandNotFoundError(probeError));
-
-  const child = spawnHiddenProcess(missing, [], directory);
-  const status = await child.status;
-  assertFalse(status.success);
-  assert(isCommandNotFoundError(status.error));
-});

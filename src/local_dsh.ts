@@ -147,20 +147,20 @@ async function probeWindowsEnvironment(
   const nodeName = "node";
   const dshName = "dsh.cmd";
   const npxName = "npx.cmd";
-  const [directDsh, directNpx, resolved] = await Promise.all([
-    probeLocalTool(dshName, probe),
-    probeLocalTool(npxName, probe),
-    resolveCommands([nodeName, dshName, npxName]).catch(
-      (): Record<string, string> => ({}),
-    ),
-  ]);
-  const [nodeProbe, dshProbe, npxProbe] = await Promise.all([
-    resolved[nodeName]
-      ? probeLocalTool(resolved[nodeName], probe)
-      : Promise.resolve<LocalToolProbeResult>({ missing: true }),
-    directDsh.missing && resolved[dshName] ? probeLocalTool(resolved[dshName], probe) : directDsh,
-    directNpx.missing && resolved[npxName] ? probeLocalTool(resolved[npxName], probe) : directNpx,
-  ]);
+  const resolved = await resolveCommands([nodeName, dshName, npxName]).catch(
+    (): Record<string, string> => ({}),
+  );
+  const [nodeProbe, dshProbe, npxProbe] = Object.keys(resolved).length > 0
+    ? await Promise.all([
+      probeResolvedWindowsTool(nodeName, resolved, probe),
+      probeResolvedWindowsTool(dshName, resolved, probe),
+      probeResolvedWindowsTool(npxName, resolved, probe),
+    ])
+    : await Promise.all([
+      Promise.resolve<LocalToolProbeResult>({ missing: true }),
+      probeLocalTool(dshName, probe),
+      probeLocalTool(npxName, probe),
+    ]);
   const node = nodeProbe.info;
   const dsh = dshProbe.info;
   const npx = npxProbe.info;
@@ -170,6 +170,15 @@ async function probeWindowsEnvironment(
     ? { kind: "npx", command: npx.command, prefix: ["-y", NPX_DSH_PACKAGE] }
     : undefined;
   return { node, dsh, npx, launcher };
+}
+
+async function probeResolvedWindowsTool(
+  command: string,
+  resolved: Record<string, string>,
+  probe: (command: string, args: string[]) => Promise<CommandProbeOutput>,
+): Promise<LocalToolProbeResult> {
+  const commandPath = resolved[command];
+  return commandPath ? await probeLocalTool(commandPath, probe) : { missing: true };
 }
 
 async function probeLocalTool(

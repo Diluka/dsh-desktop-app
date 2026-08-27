@@ -145,6 +145,40 @@ Deno.test("probeLocalDshEnvironment keeps native Windows command resolution", as
   });
 });
 
+Deno.test("probeLocalDshEnvironment falls back to resolved Windows npx when dsh is absent", async () => {
+  const calls: string[] = [];
+  const nodePath = "C:\\Program Files\\nodejs\\node.exe";
+  const npxPath = "C:\\Program Files\\nodejs\\npx.cmd";
+  const environment = await probeLocalDshEnvironment(
+    (command) => {
+      calls.push(command);
+      return Promise.resolve(
+        versionOutput(command === nodePath ? "v24.19.0" : "11.6.2"),
+      );
+    },
+    "windows",
+    (commands) => {
+      assertEquals(commands, ["node", "dsh.cmd", "npx.cmd"]);
+      return Promise.resolve({
+        node: nodePath,
+        "npx.cmd": npxPath,
+      });
+    },
+  );
+
+  assertEquals(calls, [nodePath, npxPath]);
+  assertEquals(environment, {
+    node: { command: nodePath, version: "v24.19.0" },
+    dsh: undefined,
+    npx: { command: npxPath, version: "11.6.2" },
+    launcher: {
+      kind: "npx",
+      command: npxPath,
+      prefix: ["-y", "@deepseek-ai/dsh"],
+    },
+  });
+});
+
 Deno.test("probeLocalDshEnvironment reports no usable launcher", async () => {
   const environment = await probeLocalDshEnvironment(
     () => Promise.resolve(versionOutput("")),
