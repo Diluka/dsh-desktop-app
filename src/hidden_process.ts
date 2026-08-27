@@ -27,19 +27,41 @@ function resolveProcessLaunch(
   command: string,
   args: string[],
 ): { command: string; args: string[] } {
-  return Deno.build.os === "windows" && command.toLowerCase().endsWith(".cmd")
-    ? {
+  if (Deno.build.os !== "windows") return { command, args };
+  const lower = command.toLowerCase();
+  if (lower.endsWith(".ps1")) {
+    // npm installs .ps1 shims alongside .cmd. Running the .ps1 through
+    // PowerShell keeps `node` a direct child of the PowerShell process, so
+    // taskkill /t can terminate the whole tree instead of orphaning the node
+    // processes that `dsh web` spawns.
+    return {
+      command: "powershell.exe",
+      args: [
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        command,
+        ...args,
+      ],
+    };
+  }
+  if (lower.endsWith(".cmd")) {
+    return {
       command: Deno.env.get("ComSpec") ?? "cmd.exe",
       args: ["/d", "/s", "/c", command, ...args],
-    }
-    : { command, args };
+    };
+  }
+  return { command, args };
 }
 
 function killManagedProcess(child: ChildProcess, signal: Deno.Signal): void {
-  // On Windows a .cmd shim is executed through cmd.exe, so the spawned child is
-  // a shell and child.kill only terminates that shell, leaving its descendants
-  // (e.g. the node process running `dsh web`) running. Terminate the whole tree
-  // with taskkill /t so no child process is left behind after the window closes.
+  // On Windows the spawned child is a shell (cmd.exe for .cmd, PowerShell for
+  // .ps1), and killing only that shell with child.kill leaves its descendants
+  // (the node processes running `dsh web`) running, since Windows does not
+  // cascade process termination to children. Terminate the whole tree with
+  // taskkill /t so nothing is left behind after the window closes.
   if (Deno.build.os === "windows" && child.pid && child.exitCode === null) {
     const killer = spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
       windowsHide: WINDOWS_HIDE_PROCESS,

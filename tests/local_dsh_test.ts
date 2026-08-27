@@ -27,7 +27,6 @@ const NPX_LAUNCHER = {
   prefix: ["-lic", 'exec "$0" "$@"', "npx", "-y", "@deepseek-ai/dsh"],
 } as const satisfies LocalDshLauncher;
 
-const NO_PATH_RESOLUTION = () => Promise.resolve({});
 const TOOL_PROBE_MARKER = "__DSH_DESKTOP_TOOL__";
 const LOGIN_SHELL_EXEC = 'exec "$0" "$@"';
 
@@ -67,7 +66,6 @@ Deno.test("probeLocalDshEnvironment probes all Unix tools in one login shell", a
       }));
     },
     "darwin",
-    NO_PATH_RESOLUTION,
     "/bin/zsh",
   );
 
@@ -98,7 +96,6 @@ Deno.test("probeLocalDshEnvironment selects a login-shell npx launcher when dsh 
         "npx.version": "11.6.2",
       })),
     "darwin",
-    NO_PATH_RESOLUTION,
     "/bin/zsh",
   );
 
@@ -120,7 +117,6 @@ Deno.test("probeLocalDshEnvironment does not hide a broken login-shell dsh behin
         "npx.version": "11.6.2",
       })),
     "linux",
-    NO_PATH_RESOLUTION,
     "/bin/bash",
   );
 
@@ -128,69 +124,47 @@ Deno.test("probeLocalDshEnvironment does not hide a broken login-shell dsh behin
   assertEquals(environment.launcher, undefined);
 });
 
-Deno.test("probeLocalDshEnvironment keeps native Windows command resolution", async () => {
+Deno.test("probeLocalDshEnvironment prefers Windows .ps1 shims", async () => {
   const environment = await probeLocalDshEnvironment(
-    (command) => {
-      if (command === "dsh.cmd") return Promise.reject(new Deno.errors.NotFound("missing dsh"));
-      return Promise.resolve(versionOutput("11.6.2"));
-    },
+    (command) => Promise.resolve(versionOutput(command === "node" ? "v24.19.0" : "0.1.1-rc.2")),
     "windows",
-    NO_PATH_RESOLUTION,
   );
 
-  assertEquals(environment.launcher, {
-    kind: "npx",
-    command: "npx.cmd",
-    prefix: ["-y", "@deepseek-ai/dsh"],
-  });
-});
-
-Deno.test("probeLocalDshEnvironment treats a failing fallback dsh probe as missing", async () => {
-  const environment = await probeLocalDshEnvironment(
-    (command) =>
-      command === "dsh.cmd"
-        ? Promise.resolve(versionOutput("", false))
-        : Promise.resolve(versionOutput("11.6.2")),
-    "windows",
-    NO_PATH_RESOLUTION,
-  );
-
-  assertEquals(environment.launcher, {
-    kind: "npx",
-    command: "npx.cmd",
-    prefix: ["-y", "@deepseek-ai/dsh"],
-  });
-});
-
-Deno.test("probeLocalDshEnvironment falls back to resolved Windows npx when dsh is absent", async () => {
-  const calls: string[] = [];
-  const environment = await probeLocalDshEnvironment(
-    (command) => {
-      calls.push(command);
-      return Promise.resolve(
-        versionOutput(command === "node" ? "v24.19.0" : "11.6.2"),
-      );
-    },
-    "windows",
-    (commands) => {
-      assertEquals(commands, ["node", "dsh.cmd", "npx.cmd"]);
-      return Promise.resolve({
-        node: "C:\\Program Files\\nodejs\\node.exe",
-        "npx.cmd": "C:\\Program Files\\nodejs\\npx.cmd",
-      });
-    },
-  );
-
-  assertEquals(calls, ["node", "npx.cmd"]);
   assertEquals(environment, {
     node: { command: "node", version: "v24.19.0" },
-    dsh: undefined,
-    npx: { command: "npx.cmd", version: "11.6.2" },
-    launcher: {
-      kind: "npx",
-      command: "npx.cmd",
-      prefix: ["-y", "@deepseek-ai/dsh"],
-    },
+    dsh: { command: "dsh.ps1", version: "0.1.1-rc.2" },
+    npx: { command: "npx.ps1", version: "0.1.1-rc.2" },
+    launcher: { kind: "dsh", command: "dsh.ps1", prefix: [] },
+  });
+});
+
+Deno.test("probeLocalDshEnvironment falls back to .cmd when the .ps1 shim is missing", async () => {
+  const environment = await probeLocalDshEnvironment(
+    (command) =>
+      command.endsWith(".ps1")
+        ? Promise.reject(new Deno.errors.NotFound("missing shim"))
+        : Promise.resolve(versionOutput(command === "node" ? "v24.19.0" : "0.1.1-rc.2")),
+    "windows",
+  );
+
+  assertEquals(environment.dsh, { command: "dsh.cmd", version: "0.1.1-rc.2" });
+  assertEquals(environment.npx, { command: "npx.cmd", version: "0.1.1-rc.2" });
+  assertEquals(environment.launcher, { kind: "dsh", command: "dsh.cmd", prefix: [] });
+});
+
+Deno.test("probeLocalDshEnvironment falls back to npx when dsh shims fail", async () => {
+  const environment = await probeLocalDshEnvironment(
+    (command) =>
+      command.startsWith("dsh")
+        ? Promise.resolve(versionOutput("", false))
+        : Promise.resolve(versionOutput(command === "node" ? "v24.19.0" : "11.6.2")),
+    "windows",
+  );
+
+  assertEquals(environment.launcher, {
+    kind: "npx",
+    command: "npx.ps1",
+    prefix: ["-y", "@deepseek-ai/dsh"],
   });
 });
 
@@ -198,7 +172,6 @@ Deno.test("probeLocalDshEnvironment reports no usable launcher", async () => {
   const environment = await probeLocalDshEnvironment(
     () => Promise.resolve(versionOutput("")),
     "linux",
-    NO_PATH_RESOLUTION,
     "/bin/bash",
   );
   const error = localDshInstallError();

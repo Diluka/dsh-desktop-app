@@ -81,12 +81,10 @@ export async function probeLocalDshEnvironment(
   probe: (command: string, args: string[]) => Promise<CommandProbeOutput> = (command, args) =>
     runHiddenCommand(command, args, COMMAND_PATH_TIMEOUT_MS),
   os: typeof Deno.build.os = Deno.build.os,
-  resolveWindowsCommands: (commands: string[]) => Promise<Record<string, string>> =
-    resolveWindowsCommandPaths,
   loginShell = Deno.env.get("SHELL") ?? (os === "darwin" ? "/bin/zsh" : "/bin/sh"),
 ): Promise<LocalDshEnvironment> {
   return os === "windows"
-    ? await probeWindowsEnvironment(probe, resolveWindowsCommands)
+    ? await probeWindowsEnvironment(probe)
     : await probeLoginShellEnvironment(probe, loginShell);
 }
 
@@ -142,25 +140,15 @@ function toolInfo(values: Record<string, string>, tool: string): LocalToolInfo |
 
 async function probeWindowsEnvironment(
   probe: (command: string, args: string[]) => Promise<CommandProbeOutput>,
-  resolveCommands: (commands: string[]) => Promise<Record<string, string>>,
 ): Promise<LocalDshEnvironment> {
-  const nodeName = "node";
-  const dshName = "dsh.cmd";
-  const npxName = "npx.cmd";
-  const resolved = await resolveCommands([nodeName, dshName, npxName]).catch(
-    (): Record<string, string> => ({}),
-  );
-  const [nodeProbe, dshProbe, npxProbe] = Object.keys(resolved).length > 0
-    ? await Promise.all([
-      probeWindowsToolPresent(nodeName, resolved, probe),
-      probeWindowsToolPresent(dshName, resolved, probe),
-      probeWindowsToolPresent(npxName, resolved, probe),
-    ])
-    : await Promise.all([
-      probeWindowsToolUnconfirmed(nodeName, probe),
-      probeWindowsToolUnconfirmed(dshName, probe),
-      probeWindowsToolUnconfirmed(npxName, probe),
-    ]);
+  // npm installs .ps1 and .cmd shims together. Prefer the .ps1 shim, launched
+  // through PowerShell, so `node` stays a direct child of the PowerShell
+  // process and taskkill /t can terminate the whole tree; .cmd is the fallback.
+  const [nodeProbe, dshProbe, npxProbe] = await Promise.all([
+    probeWindowsTool(["node"], probe),
+    probeWindowsTool(["dsh.ps1", "dsh.cmd"], probe),
+    probeWindowsTool(["npx.ps1", "npx.cmd"], probe),
+  ]);
   const node = nodeProbe.info;
   const dsh = dshProbe.info;
   const npx = npxProbe.info;
@@ -172,28 +160,15 @@ async function probeWindowsEnvironment(
   return { node, dsh, npx, launcher };
 }
 
-async function probeWindowsToolPresent(
-  command: string,
-  resolved: Record<string, string>,
+async function probeWindowsTool(
+  candidates: readonly string[],
   probe: (command: string, args: string[]) => Promise<CommandProbeOutput>,
 ): Promise<LocalToolProbeResult> {
-  // Probe by bare name: cmd.exe resolves .cmd shims through the same PATH as
-  // where.exe, while an absolute path containing spaces (e.g.
-  // C:\Program Files\nodejs\npx.cmd) is unreliable through `cmd /c` quoting.
-  // where.exe resolution only asserts existence.
-  return resolved[command] ? await probeLocalTool(command, probe) : { missing: true };
-}
-
-// Fallback used when where.exe resolution returns nothing: cmd.exe reports a
-// missing command with exit code 1 (not 9009), so a failing --version probe
-// cannot be told apart from a missing shim. Any non-successful probe therefore
-// counts as missing.
-async function probeWindowsToolUnconfirmed(
-  command: string,
-  probe: (command: string, args: string[]) => Promise<CommandProbeOutput>,
-): Promise<LocalToolProbeResult> {
-  const result = await probeLocalTool(command, probe);
-  return result.info ? result : { missing: true };
+  for (const command of candidates) {
+    const result = await probeLocalTool(command, probe);
+    if (result.info) return result;
+  }
+  return { missing: true };
 }
 
 async function probeLocalTool(
@@ -211,23 +186,6 @@ async function probeLocalTool(
     .map((text) => text.split(/\r?\n/u).map((line) => line.trim()).findLast(Boolean))
     .find(Boolean);
   return version ? { info: { command, version }, missing: false } : { missing: false };
-}
-
-async function resolveWindowsCommandPaths(commands: string[]): Promise<Record<string, string>> {
-  const validCommands = commands.filter((command) => /^[a-z0-9._-]+$/iu.test(command));
-  const entries = await Promise.all(validCommands.map(async (command) => {
-    try {
-      const result = await runHiddenCommand("where.exe", [command], COMMAND_PATH_TIMEOUT_MS);
-      const path = result.stdout
-        .split(/\r?\n/u)
-        .map((line) => line.trim())
-        .find((line) => /^[a-z]:[\\/]/iu.test(line));
-      return path ? [command, path] as const : undefined;
-    } catch {
-      return undefined;
-    }
-  }));
-  return Object.fromEntries(entries.filter((entry) => entry !== undefined));
 }
 
 export async function startLocalDshWeb(

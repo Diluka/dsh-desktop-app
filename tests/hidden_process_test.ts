@@ -43,6 +43,21 @@ Deno.test("spawnHiddenProcess runs Windows cmd shims through ComSpec", async () 
   assertStringIncludes(probe.stdout, "cmd output");
 });
 
+Deno.test("spawnHiddenProcess runs Windows .ps1 shims through PowerShell", async () => {
+  if (Deno.build.os !== "windows") return;
+  const directory = await Deno.makeTempDir();
+  const script = join(directory, "fixture.ps1");
+  await Deno.writeTextFile(script, "Write-Output 'ps1 output'\n");
+
+  const child = spawnHiddenProcess(script, [], directory);
+
+  assertEquals(await child.status, { success: true, code: 0, signal: null });
+  assertStringIncludes(await Deno.readTextFile(child.outputFile), "ps1 output");
+  const probe = await runHiddenCommand(script, []);
+  assertEquals(probe.success, true);
+  assertStringIncludes(probe.stdout, "ps1 output");
+});
+
 Deno.test("runHiddenCommand enforces an optional timeout", async () => {
   const started = performance.now();
   const output = await runHiddenCommand(
