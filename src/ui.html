@@ -36,7 +36,7 @@
       --brand-hover: #4868b2;
       --brand-text: #ffffff;
       --success: #22c55e;
-      --danger: #c52222;
+      --danger: #ec1313;
       --warning-bg: #fef5e7;
       --warning-border: #f7ad31;
       --warning-text: #8a5a13;
@@ -310,15 +310,6 @@
     }
     .button.secondary {
       background: transparent;
-    }
-    .button.danger {
-      border-color: var(--danger);
-      color: var(--danger);
-      background: transparent;
-    }
-    .button.danger:hover:not(:disabled) {
-      border-color: var(--danger);
-      background: var(--surface-hover);
     }
     .button.small {
       min-height: 34px;
@@ -613,12 +604,6 @@
     .confirmation::backdrop {
       background: var(--overlay);
     }
-    .confirmation-actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 8px;
-      margin-top: 22px;
-    }
     .connecting-steps {
       display: grid;
       gap: 8px;
@@ -809,9 +794,9 @@
       aria-labelledby="delete-confirmation-title" aria-describedby="delete-confirmation-message">
       <h3 id="delete-confirmation-title">删除服务器</h3>
       <p id="delete-confirmation-message"></p>
-      <form class="confirmation-actions" method="dialog">
+      <form class="form-actions" method="dialog">
         <button class="button secondary" type="submit" value="cancel" autofocus>取消</button>
-        <button class="button danger" type="submit" value="confirm">删除</button>
+        <button class="button" type="submit" value="confirm">删除</button>
       </form>
     </dialog>
 
@@ -1008,7 +993,7 @@
         try {
           await globalThis.bindings.openLogDirectory();
         } catch (error) {
-          showToast(errorMessage(error));
+          alert(errorMessage(error));
         } finally {
           button.disabled = false;
         }

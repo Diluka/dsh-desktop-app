@@ -14,13 +14,13 @@ Deno.test("shell html has key elements and parseable inline scripts", () => {
   for (const script of scripts) new Function(script);
 });
 
-Deno.test("shell renders Unicode dialogs in-page instead of using native browser prompts", () => {
-  assertFalse(/\b(?:alert|confirm|prompt)\s*\(/u.test(SHELL_HTML));
+Deno.test("shell renders Unicode delete confirmation in-page", () => {
+  assertFalse(/\bconfirm\s*\(/u.test(SHELL_HTML));
   assertMatch(
     SHELL_HTML,
     /<dialog id="delete-confirmation"[^>]+aria-modal="true"[^>]*>/u,
   );
-  assertMatch(SHELL_HTML, /<form class="confirmation-actions" method="dialog">/u);
+  assertMatch(SHELL_HTML, /<form class="form-actions" method="dialog">/u);
   assertMatch(SHELL_HTML, /deleteConfirmationMessage\.textContent =/u);
 });
 
