@@ -1,11 +1,17 @@
 // A dsh-web stand-in for verifying process cleanup on Windows without a real
-// dsh install. It listens on 127.0.0.1:<port> and runs forever, and spawns one
-// child node process to mirror `dsh web` (main process + child process).
+// dsh install. It responds to `--version` (probe), and otherwise listens on
+// 127.0.0.1:<port> and runs forever, spawning one child node process to mirror
+// `dsh web` (main process + child process).
 //
-// Usage (mirrors how the desktop app launches the .ps1 shim):
+// Usage (mirrors how the desktop app launches the .ps1/.cmd shim):
 //   powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File fake-dsh.ps1 web --host 127.0.0.1 --port 47890 --no-open
 const http = require("node:http");
 const { spawn } = require("node:child_process");
+
+if (process.argv.includes("--version")) {
+  console.log("0.0.0-fake");
+  process.exit(0);
+}
 
 function argValue(name) {
   const index = process.argv.indexOf(name);
