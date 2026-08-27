@@ -13,7 +13,7 @@
     "lint": "deno lint",
     "typecheck": "deno check main.ts main_webview.ts scripts/build_windows.ts",
     "test": "deno test --permit-no-files --permission-set=app",
-    "check": "deno fmt --check && deno lint && deno check main.ts main_webview.ts scripts/build_windows.ts && deno test --permit-no-files --permission-set=app",
+    "check": "deno fmt --check && deno lint && deno task typecheck && deno test --permit-no-files --permission-set=app",
     "build:linux": "deno desktop --exclude-unused-npm --permission-set=app --target x86_64-unknown-linux-gnu --icon assets/icon.png --output dist/linux/DSH-Desktop main.ts",
     "build:windows": "deno task build:windows:cef && deno task build:windows:webview",
     "build:windows:cef": "deno run --permission-set=app scripts/build_windows.ts --backend=cef",

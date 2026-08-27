@@ -61,6 +61,43 @@ Deno.test("ProfileStore.save updates an existing profile id instead of duplicati
   assertEquals(JSON.parse(await Deno.readTextFile(filePath)).profiles, [updated]);
 });
 
+Deno.test("ProfileStore persists the selected mode and last used profile", async () => {
+  const filePath = await tempFile("servers.json");
+  let nextId = 1;
+  const { store } = await ProfileStore.open(filePath, { createId: () => `profile-${nextId++}` });
+  const first = await store.save({ name: "First", sshTarget: "first" });
+  const second = await store.save({ name: "Second", sshTarget: "second" });
+
+  assertEquals(store.connectionMode(), "remote");
+  await store.setConnectionMode("local");
+  await store.markUsed(second.id);
+  assertEquals(store.list(), [second, first]);
+
+  const persisted = JSON.parse(await Deno.readTextFile(filePath));
+  assertEquals(persisted.mode, "local");
+  assertEquals(persisted.lastProfileId, second.id);
+
+  const reopened = (await ProfileStore.open(filePath)).store;
+  assertEquals(reopened.connectionMode(), "local");
+  assertEquals(reopened.list(), [second, first]);
+  await reopened.delete(second.id);
+  assertEquals(reopened.list(), [first]);
+  assertEquals(JSON.parse(await Deno.readTextFile(filePath)).lastProfileId, undefined);
+
+  await assertRejects(() => reopened.setConnectionMode("invalid"), ProfileValidationError);
+  await assertRejects(() => reopened.markUsed("missing"), ProfileValidationError);
+});
+
+Deno.test("ProfileStore opens version 1 files without saved preferences", async () => {
+  const filePath = await tempFile("servers.json");
+  await Deno.writeTextFile(filePath, JSON.stringify({ version: 1, profiles: [] }));
+
+  const { store, recoveredBackup } = await ProfileStore.open(filePath);
+  assertEquals(store.connectionMode(), "remote");
+  assertEquals(store.list(), []);
+  assertEquals(recoveredBackup, undefined);
+});
+
 Deno.test("ProfileStore backs up corrupt config and recovers empty store", async () => {
   const filePath = await tempFile("servers.json");
   await Deno.writeTextFile(filePath, "not json");

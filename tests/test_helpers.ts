@@ -45,21 +45,14 @@ export function tickingClock(initial: number, step: number) {
   };
 }
 
-export function fakeChild(stderr = "") {
-  let finish!: (status: Deno.CommandStatus) => void;
-  const status = new Promise<Deno.CommandStatus>((resolve) => {
+export function fakeChild(outputFile = "") {
+  let finish!: (status: Deno.CommandStatus & { error?: Error }) => void;
+  const status = new Promise<Deno.CommandStatus & { error?: Error }>((resolve) => {
     finish = resolve;
   });
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      if (stderr) controller.enqueue(encoder.encode(stderr));
-      controller.close();
-    },
-  });
   return {
+    outputFile,
     status,
-    stderr: stream,
     kills: [] as Array<Deno.Signal | undefined>,
     kill(signal?: Deno.Signal) {
       this.kills.push(signal);

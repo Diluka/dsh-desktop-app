@@ -1,5 +1,12 @@
 import type { Logger } from "pino";
-import { isCommandNotFoundError, runHiddenCommand, spawnHiddenProcess } from "./hidden_process.ts";
+import {
+  isCommandNotFoundError,
+  type ManagedHiddenProcess,
+  readProcessOutputTail,
+  runHiddenCommand,
+} from "./hidden_process.ts";
+import { allocateLoopbackPort, probeHttp } from "./loopback_http.ts";
+import { ManagedEndpoint, type ManagedEndpointExit } from "./managed_endpoint.ts";
 import type { ServerProfile } from "./profiles.ts";
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 20_000;
@@ -29,71 +36,19 @@ export class TunnelError extends Error {
   }
 }
 
-interface ChildProcessLike {
-  readonly status: Promise<{ success: boolean; code: number; signal: string | null }>;
-  readonly stderr: ReadableStream<Uint8Array>;
-  kill(signal?: Deno.Signal): void;
-}
-
 interface StartTunnelOptions {
   readonly command?: string;
   readonly startupTimeoutMs?: number;
   readonly allocatePort?: () => Promise<number>;
-  readonly spawn?: (command: string, args: string[]) => ChildProcessLike;
+  readonly spawn: (command: string, args: string[]) => ManagedHiddenProcess;
   readonly probe?: (url: string) => Promise<void>;
   readonly delay?: (milliseconds: number) => Promise<void>;
   readonly now?: () => number;
 }
 
-export interface TunnelExit {
-  readonly success: boolean;
-  readonly code: number;
-  readonly signal: string | null;
-  readonly stderr: readonly string[];
-  readonly stopRequested: boolean;
-}
+export type TunnelExit = ManagedEndpointExit;
 
-export class SshTunnel {
-  readonly exited: Promise<TunnelExit>;
-  #finished = false;
-  #stopRequested = false;
-
-  constructor(
-    readonly url: string,
-    private readonly child: ChildProcessLike,
-    private readonly stderrDone: Promise<readonly string[]>,
-    private readonly delay: (milliseconds: number) => Promise<void>,
-  ) {
-    this.exited = (async () => {
-      const status = await child.status;
-      this.#finished = true;
-      return {
-        ...status,
-        stderr: await stderrDone,
-        stopRequested: this.#stopRequested,
-      };
-    })();
-  }
-
-  async stop(): Promise<void> {
-    if (this.#finished) return;
-    this.#stopRequested = true;
-    try {
-      this.child.kill("SIGTERM");
-    } catch {
-      return;
-    }
-
-    await Promise.race([this.exited.then(() => undefined), this.delay(2_000)]);
-    if (this.#finished) return;
-    try {
-      this.child.kill("SIGKILL");
-    } catch {
-      // The process may have exited between the status check and kill.
-    }
-    await this.exited.catch(() => undefined);
-  }
-}
+export class SshTunnel extends ManagedEndpoint {}
 
 export async function probeOpenSsh(
   os: typeof Deno.build.os = Deno.build.os,
@@ -145,7 +100,7 @@ export function buildSshArguments(profile: ServerProfile, localPort: number): st
 export async function startSshTunnel(
   profile: ServerProfile,
   logger: Logger,
-  options: StartTunnelOptions = {},
+  options: StartTunnelOptions,
 ): Promise<SshTunnel> {
   for (let attempt = 1; attempt <= MAX_LOCAL_PORT_ATTEMPTS; attempt++) {
     try {
@@ -169,7 +124,7 @@ async function startTunnelAttempt(
 ): Promise<SshTunnel> {
   const command = options.command ?? "ssh";
   const allocatePort = options.allocatePort ?? allocateLoopbackPort;
-  const spawn = options.spawn ?? spawnOpenSsh;
+  const spawn = options.spawn;
   const probe = options.probe ?? probeHttp;
   const delay = options.delay ?? sleep;
   const now = options.now ?? Date.now;
@@ -184,33 +139,36 @@ async function startTunnelAttempt(
     remotePort: profile.remotePort,
   }, "Starting OpenSSH local port forwarding");
 
-  let child: ChildProcessLike;
+  let child: ManagedHiddenProcess;
   try {
     child = spawn(command, args);
   } catch (error) {
-    if (error instanceof Deno.errors.NotFound) {
+    if (isCommandNotFoundError(error)) {
       throw new TunnelError("SSH_NOT_FOUND", "未找到 OpenSSH Client，请先安装后重试");
     }
     throw error;
   }
 
-  const stderr = monitorStderr(child.stderr, (line) => {
-    logger.warn({
-      event: "ssh.stderr",
-      profileId: profile.id,
-      detail: line,
-    }, "OpenSSH reported a diagnostic");
-  });
-  const tunnel = new SshTunnel(
-    `http://127.0.0.1:${localPort}/`,
-    child,
-    stderr.done,
-    delay,
-  );
+  const tunnel = new SshTunnel(`http://127.0.0.1:${localPort}/`, child, delay);
   const exitOutcome = tunnel.exited.then((value) => ({
     kind: "exit" as const,
     value,
   }));
+
+  async function failureFromExit(exit: TunnelExit): Promise<TunnelError> {
+    const detail = await readProcessOutputTail(tunnel.outputFile);
+    const error = classifySshFailure(detail, exit.error);
+    logger.warn({
+      event: "ssh.tunnel_failed",
+      profileId: profile.id,
+      errorCode: error.code,
+      childExitCode: exit.code,
+      childSignal: exit.signal,
+      childOutputFile: tunnel.outputFile,
+      ...(exit.error ? { err: exit.error } : {}),
+    }, "OpenSSH tunnel failed");
+    return error;
+  }
 
   const startedAt = now();
   while (now() - startedAt < startupTimeoutMs) {
@@ -221,11 +179,12 @@ async function startTunnelAttempt(
         () => ({ kind: "retry" as const }),
       ),
     ]);
-    if (outcome.kind === "exit") throw classifySshFailure(outcome.value.stderr);
+    if (outcome.kind === "exit") throw await failureFromExit(outcome.value);
     if (outcome.kind === "ready") {
       logger.info({
         event: "ssh.tunnel_ready",
         profileId: profile.id,
+        childOutputFile: tunnel.outputFile,
         startupMs: Math.max(0, now() - startedAt),
       }, "SSH tunnel and remote DSH Web are ready");
       return tunnel;
@@ -235,106 +194,28 @@ async function startTunnelAttempt(
       exitOutcome,
       delay(150).then(() => ({ kind: "retry" as const })),
     ]);
-    if (pause.kind === "exit") throw classifySshFailure(pause.value.stderr);
+    if (pause.kind === "exit") throw await failureFromExit(pause.value);
   }
 
   await tunnel.stop();
+  logger.warn({
+    event: "ssh.tunnel_unavailable",
+    profileId: profile.id,
+    childOutputFile: tunnel.outputFile,
+  }, "SSH tunnel did not become ready");
   throw new TunnelError(
     "DSH_UNAVAILABLE",
     "SSH 已连接，但远端 DSH Web 未在限定时间内响应；请检查远端端口配置",
   );
 }
 
-function spawnOpenSsh(command: string, args: string[]): ChildProcessLike {
-  return spawnHiddenProcess(command, args);
-}
-
-function allocateLoopbackPort(): Promise<number> {
-  const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-  try {
-    const address = listener.addr as Deno.NetAddr;
-    return Promise.resolve(address.port);
-  } finally {
-    listener.close();
-  }
-}
-
-async function probeHttp(url: string): Promise<void> {
-  const response = await fetch(url, {
-    method: "GET",
-    redirect: "manual",
-    signal: AbortSignal.timeout(1_500),
-  });
-  await response.body?.cancel();
-}
-
-function monitorStderr(
-  stream: ReadableStream<Uint8Array>,
-  onLine: (line: string) => void,
-): { done: Promise<readonly string[]> } {
-  const tail: string[] = [];
-  let privateKeyBlock = false;
-  const done = (async () => {
-    const reader = stream.getReader();
-    const decoder = new TextDecoder();
-    let pending = "";
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        pending += decoder.decode(value, { stream: true });
-        const lines = pending.split(/\r?\n/u);
-        pending = lines.pop() ?? "";
-        for (const line of lines) recordLine(line);
-      }
-      pending += decoder.decode();
-      if (pending) recordLine(pending);
-    } finally {
-      reader.releaseLock();
-    }
-    return tail;
-  })();
-
-  return { done };
-
-  function recordLine(raw: string): void {
-    const beginsPrivateKey = /-----BEGIN [^-\r\n]*PRIVATE KEY-----/iu.test(raw);
-    const endsPrivateKey = /-----END [^-\r\n]*PRIVATE KEY-----/iu.test(raw);
-    if (privateKeyBlock) {
-      if (endsPrivateKey) privateKeyBlock = false;
-      return;
-    }
-    if (beginsPrivateKey) {
-      privateKeyBlock = !endsPrivateKey;
-      storeLine("[REDACTED PRIVATE KEY MATERIAL]");
-      return;
-    }
-
-    const line = Array.from(raw)
-      .filter((character) => {
-        const code = character.charCodeAt(0);
-        return code === 9 || (code >= 32 && code !== 127);
-      })
-      .join("")
-      .trim();
-    if (line) storeLine(line);
-  }
-
-  function storeLine(line: string): void {
-    tail.push(line.slice(0, 2_000));
-    if (tail.length > 20) tail.shift();
-    onLine(line.slice(0, 2_000));
-  }
-}
-
-function classifySshFailure(stderr: readonly string[]): TunnelError {
-  const detail = stderr.join("\n");
+function classifySshFailure(detail: string, processError?: Error): TunnelError {
   if (
     /address already in use|cannot listen to port|could not request local forwarding/iu.test(detail)
   ) {
     return new TunnelError("LOCAL_PORT_BUSY", "本地端口刚被其他程序占用，正在重试");
   }
-  if (/\bENOENT\b|not found/iu.test(detail)) {
+  if (isCommandNotFoundError(processError) || /\bENOENT\b|not found/iu.test(detail)) {
     return new TunnelError("SSH_NOT_FOUND", "未找到 OpenSSH Client，请先安装后重试");
   }
   if (/permission denied|no more authentication methods/iu.test(detail)) {

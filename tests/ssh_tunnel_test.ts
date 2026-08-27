@@ -1,6 +1,6 @@
 import { assert, assertEquals, assertFalse, assertMatch, assertRejects } from "@std/assert";
 import { buildSshArguments, probeOpenSsh, startSshTunnel, TunnelError } from "../src/ssh_tunnel.ts";
-import { fakeChild, memoryLogger, profile, tickingClock } from "./test_helpers.ts";
+import { fakeChild, memoryLogger, profile, tempFile, tickingClock } from "./test_helpers.ts";
 
 Deno.test("buildSshArguments creates non-interactive loopback forwarding without clearing forwards", () => {
   const args = buildSshArguments({
@@ -93,14 +93,15 @@ Deno.test("startSshTunnel supports fake child ready path and stop lifecycle", as
     success: true,
     code: 0,
     signal: null,
-    stderr: [],
     stopRequested: true,
   });
 });
 
 Deno.test("startSshTunnel retries LOCAL_PORT_BUSY and succeeds on a later attempt", async () => {
   const { logger } = await memoryLogger();
-  const busy = fakeChild("bind [127.0.0.1]:41001: Address already in use\n");
+  const busyOutput = await tempFile("busy.log");
+  await Deno.writeTextFile(busyOutput, "bind [127.0.0.1]:41001: Address already in use\n");
+  const busy = fakeChild(busyOutput);
   const ready = fakeChild();
   const allocatedPorts: number[] = [];
   let spawnCount = 0;
@@ -133,6 +134,11 @@ Deno.test("startSshTunnel retries LOCAL_PORT_BUSY and succeeds on a later attemp
 
 Deno.test("startSshTunnel throws LOCAL_PORT_BUSY after repeated local port conflicts", async () => {
   const { logger } = await memoryLogger();
+  const busyOutput = await tempFile("busy.log");
+  await Deno.writeTextFile(
+    busyOutput,
+    "channel_setup_fwd_listener_tcpip: cannot listen to port\n",
+  );
   let attempts = 0;
 
   const error = await assertRejects(
@@ -141,7 +147,7 @@ Deno.test("startSshTunnel throws LOCAL_PORT_BUSY after repeated local port confl
         allocatePort: () => Promise.resolve(41001 + attempts),
         spawn: () => {
           attempts += 1;
-          const child = fakeChild("channel_setup_fwd_listener_tcpip: cannot listen to port\n");
+          const child = fakeChild(busyOutput);
           child.finish({ success: false, code: 255, signal: null });
           return child;
         },
@@ -184,58 +190,53 @@ Deno.test("startSshTunnel stops tunnel and throws DSH_UNAVAILABLE when remote pr
   await child.status;
 });
 
-Deno.test("startSshTunnel classifies auth failure without logging private key material", async () => {
-  const child = fakeChild(
-    "-----BEGIN OPENSSH PRIVATE KEY-----\nsecretbase64\n-----END OPENSSH PRIVATE KEY-----\nPermission denied (publickey).\n",
-  );
-  child.finish({ success: false, code: 255, signal: null });
-
+Deno.test("startSshTunnel keeps child output out of the app log", async () => {
   const { logger, filePath } = await memoryLogger();
-  const error = await assertRejects(
-    () =>
-      startSshTunnel(profile(), logger, {
-        allocatePort: () => Promise.resolve(41004),
-        spawn: () => child,
-        probe: () => Promise.reject(new Error("not ready")),
-        delay: () => Promise.resolve(),
-        now: tickingClock(0, 1000),
-        startupTimeoutMs: 5000,
-      }),
-    TunnelError,
-  );
-  assertEquals(error.code, "AUTH_FAILED");
-  logger.flush();
-  const log = await Deno.readTextFile(filePath);
-  assertFalse(log.includes("secretbase64"));
-  assert(log.includes("[REDACTED PRIVATE KEY MATERIAL]"));
-});
-
-Deno.test("startSshTunnel classifies host key verification failures", async () => {
-  const { logger } = await memoryLogger();
-  const error = await startAndClassify("Host key verification failed.\n", logger);
-  assertEquals(error.code, "HOST_KEY_FAILED");
-});
-
-Deno.test("startSshTunnel classifies missing hosts", async () => {
-  const { logger } = await memoryLogger();
-  const error = await startAndClassify("Could not resolve hostname prod-dsh\n", logger);
-  assertEquals(error.code, "HOST_NOT_FOUND");
-});
-
-Deno.test("startSshTunnel classifies SSH connection failures", async () => {
-  const { logger } = await memoryLogger();
   const error = await startAndClassify(
-    "ssh: connect to host prod-dsh port 22: Connection refused\n",
+    "debug: connecting\nPermission denied (publickey).\n",
     logger,
   );
-  assertEquals(error.code, "CONNECTION_FAILED");
+  assertEquals(error.code, "AUTH_FAILED");
+
+  logger.flush();
+  const log = await Deno.readTextFile(filePath);
+  assertFalse(log.includes("Permission denied"));
+  assertFalse(log.includes("debug: connecting"));
 });
+
+for (
+  const { name, stderr, code } of [
+    {
+      name: "host key verification failures",
+      stderr: "Host key verification failed.\n",
+      code: "HOST_KEY_FAILED",
+    },
+    {
+      name: "missing hosts",
+      stderr: "Could not resolve hostname prod-dsh\n",
+      code: "HOST_NOT_FOUND",
+    },
+    {
+      name: "SSH connection failures",
+      stderr: "ssh: connect to host prod-dsh port 22: Connection refused\n",
+      code: "CONNECTION_FAILED",
+    },
+  ] as const
+) {
+  Deno.test(`startSshTunnel classifies ${name}`, async () => {
+    const { logger } = await memoryLogger();
+    const error = await startAndClassify(stderr, logger);
+    assertEquals(error.code, code);
+  });
+}
 
 async function startAndClassify(
   stderr: string,
   logger: Awaited<ReturnType<typeof memoryLogger>>["logger"],
 ) {
-  const child = fakeChild(stderr);
+  const outputFile = await tempFile("ssh.log");
+  await Deno.writeTextFile(outputFile, stderr);
+  const child = fakeChild(outputFile);
   child.finish({ success: false, code: 255, signal: null });
 
   return await assertRejects(

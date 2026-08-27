@@ -1,8 +1,7 @@
 # Windows / Linux / macOS GUI 验证
 
-本文用于验证首版远程模式。无头 CI
-负责格式、lint、类型、单测和打包；本页覆盖必须在真实桌面环境观察的窗口、CEF/WebView2、OpenSSH 与 DSH
-Web 行为。
+本文用于验证本地与远程模式。无头 CI 负责格式、lint、类型、单测和打包；本页覆盖必须在真实桌面环境
+观察的窗口、CEF/WebView2、OpenSSH、npx 与 DSH Web 行为。
 
 ## 准备
 
@@ -56,7 +55,7 @@ deno task build:windows
 
 分别复制完整的 `dist/windows/DSH-Desktop-CEF/` 与 `dist/windows/DSH-Desktop-WebView/` 目录，运行
 其中同名 EXE。执行 `deno task package:windows` 会生成 `DSH-Desktop-windows-x86_64-cef.zip` 和
-`DSH-Desktop-windows-x86_64-webview.zip`；完整解压后再运行， 不能只复制 EXE。Windows
+`DSH-Desktop-windows-x86_64-webview.zip`；完整解压后再运行，不能只复制 EXE。Windows
 两个版本都需覆盖本节场景；WebView2 版本还需确认系统 Runtime 可用。
 
 实时查看日志：
@@ -144,8 +143,9 @@ tail -f "$(ls -t "$log_dir"/dsh-desktop-*.jsonl | head -n 1)"
 - 无法认证的测试 Host
 - 正确 SSH Host + 错误 DSH Web 端口
 
-预期应用停留或返回选择页，给出可操作的中文错误；日志包含 `ssh.stderr` 和
-`ssh.connect_failed`，应用不崩溃、不残留长期运行的 `ssh` 子进程。
+预期应用停留或返回选择页，给出可操作的中文错误；JSONL 包含 `ssh.tunnel_failed`、
+`ssh.connect_failed` 和 `childOutputFile`，对应 `.child.log` 保留 OpenSSH 原始输出。应用不崩溃、
+不残留长期运行的 `ssh` 子进程，原始输出也不应出现在 JSONL 中。
 
 ### 6. 断线返回
 
@@ -159,26 +159,20 @@ tail -f "$(ls -t "$log_dir"/dsh-desktop-*.jsonl | head -n 1)"
 
 预期选择页显示对应平台的安装指引，连接按钮不可用，日志包含 `ssh.probe` 且 `available` 为 `false`。
 
-### 8. 语言与系统 locale
-
-1. 在 Linux/macOS CEF 版与 Windows CEF/WebView2 两个版本分别启动，确认不出现 locale 自重启空白窗口。
-2. 在 DSH 设置中保存语言后重启桌面应用，确认偏好仍然生效。
-3. 确认 `app.start.systemLocale` 是运行机器检测到的 locale；该字段只用于诊断，不控制 DSH 界面语言。
-4. locale 检测失败时该字段缺席，应用仍应正常启动。
-
-### 9. 打开日志目录
+### 8. 打开日志目录
 
 在服务器选择页点击“打开目录”，确认 Windows Explorer、macOS Finder 或 Linux
-默认文件管理器打开当前日志目录。 命令成功交给系统时日志包含 `logs.directory_open_requested`。Linux
+默认文件管理器打开当前日志目录。命令成功交给系统时日志包含 `logs.directory_open_requested`。Linux
 缺少 `xdg-open` 或系统命令失败时，页面必须弹窗提示且日志包含 `logs.directory_open_failed`。
 
-### 10. Windows 隐藏 OpenSSH 窗口
+### 9. Windows 隐藏 OpenSSH 窗口
 
-在 Windows 上分别观察应用启动时的 `ssh -V` 探测和点击“连接”后的长连接过程。
+在 Windows 上分别观察应用启动时的 `ssh -V` 探测、点击“连接”后的长连接，以及点击本地启动后的 npx
+fallback。
 
-预期全程不出现 `cmd.exe`/控制台闪窗；连接、错误提示、日志和关闭时的 SSH 清理行为保持不变。
+预期全程不出现可见的 `cmd.exe`/控制台闪窗；连接、错误提示、日志和关闭时的子进程清理行为保持不变。
 
-### 11. Windows 和 macOS 应用图标
+### 10. Windows 和 macOS 应用图标
 
 1. 解压两个 Windows ZIP 后分别检查各自目录内的 `DSH-Desktop.exe`、运行窗口和任务栏。
 2. 在 Windows 浅色和深色模式下重复检查；若任务栏保留旧缓存，先取消固定再重新固定后复查。
@@ -186,6 +180,22 @@ tail -f "$(ls -t "$log_dir"/dsh-desktop-*.jsonl | head -n 1)"
 
 预期 Windows 与 macOS 均显示带细边框的黑色底、白色鱼形项目图标，而不是系统或浏览器默认图标；图标在
 浅色和深色系统外观中均清晰可辨。关闭应用后用新分发包完整覆盖旧目录，确认应用可正常启动且服务器配置仍保留。
+
+### 11. 本地模式、npx 回退与终止
+
+1. 从 Finder 启动应用，确认窗口立即出现；打开“本地模式”，环境检测完成后显示平台、Node.js、DSH CLI 和
+   npx 版本，条件不足时启动按钮禁用。
+2. 检查应用启动阶段的进程与网络，确认只执行各工具自身的 `--version`，不会执行
+   `npx -y @deepseek-ai/dsh --version` 或下载 DSH 包。
+3. PATH 中存在 `dsh` 时点击“启动本地 DSH”，确认直接加载本地 DSH Web。
+4. 在隔离测试环境中隐藏 `dsh`、保留可运行的 npx，再次点击“启动本地 DSH”。
+5. 确认此时才开始 npx 下载；等待弹窗提示首次下载可能超过 30 分钟、不自动超时，并显示“终止启动”按钮。
+6. 在 npx 仍运行时点击“终止启动”，确认弹窗关闭、页面提示已终止，且不残留 `npx`/DSH 子进程。
+7. 再次启动并允许 npx 完成，确认同一窗口加载 DSH Web。
+8. 同时隐藏 `dsh` 和 npx，确认启动按钮保持禁用并显示缺失环境。
+
+预期 JSONL 包含 `local_dsh.npx_fallback`，成功或失败事件包含 `childOutputFile`。npx
+原始下载输出不会复制到 JSONL，仅写入对应的 `.child.log`。
 
 ## 回报模板
 
@@ -199,8 +209,10 @@ OS / 版本：
 失败场景：
 复现步骤：
 可见错误：
-日志文件：
+JSONL 日志文件：
+子进程 `.child.log`：
 ```
 
-日志优先提供失败进程对应 JSONL 文件中的完整事件。外发前可脱敏 SSH Host、用户名和本地路径；保留
+日志优先提供失败进程对应 JSONL 文件中的完整事件，并按 `childOutputFile` 附上对应的 `.child.log`。
+子进程日志是未经脱敏的原始输出，外发前检查 SSH Host、用户名、本地路径和其他敏感内容；JSONL 保留
 `event`、`time`、`msg`、错误类别、退出码和事件顺序。

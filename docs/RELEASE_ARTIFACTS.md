@@ -55,8 +55,8 @@ open DSH-Desktop.app
 
 ## Release 更新规则
 
-`latest` 是滚动发布：新的 `main` 提交只有在 Linux、Windows、macOS
-四个测试任务和四个分发构建全部成功后，才会替换现有文件。Release 页面会记录来源提交和 GitHub Actions
-运行链接。
+`latest` 是滚动发布：新的 `main` 提交只有在 Linux、Windows、macOS 四个测试任务和 Windows/macOS
+四个分发构建全部成功后，才会替换现有文件。Release 页面会记录来源提交和 GitHub Actions 运行链接。Pull
+Request 只运行测试，不发布产物；任何测试或打包失败都会保留上一版 Release。
 
 Linux 源码构建任务继续保留在仓库中，`latest` Release 当前不提供 Linux 预构建文件。
