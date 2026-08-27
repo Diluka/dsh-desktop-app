@@ -1,6 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { closeSync, openSync } from "node:fs";
 import { join } from "node:path";
+import { assignChildToKillOnCloseJob } from "./windows_job.ts";
 
 const WINDOWS_HIDE_PROCESS = true;
 const MAX_OUTPUT_TAIL_BYTES = 16 * 1024;
@@ -92,6 +93,10 @@ export function spawnHiddenProcess(
       closeSync(outputFd);
     }
   })();
+  // Keep the spawned tree alive only while this app runs: the OS terminates all
+  // job members when this process exits, even if the window closes before the
+  // async shutdown cleanup finishes.
+  if (Deno.build.os === "windows") assignChildToKillOnCloseJob(child.pid);
 
   let settled = false;
   let settle!: (status: HiddenProcessStatus) => void;
