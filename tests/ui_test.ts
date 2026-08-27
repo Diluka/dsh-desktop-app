@@ -24,6 +24,16 @@ Deno.test("shell html has key elements and parseable inline scripts", () => {
   for (const script of scripts) new Function(script);
 });
 
+Deno.test("shell waits for backend bindings before enabling actions", () => {
+  assertMatch(SHELL_HTML, /<button id="start-local"[^>]*disabled>/u);
+  assertMatch(SHELL_HTML, /<button id="add-server"[^>]*disabled>/u);
+  assertMatch(SHELL_HTML, /<button id="open-log-directory"[^>]*disabled>/u);
+  assertMatch(SHELL_HTML, /No binding for 'bootstrap'/u);
+  assertMatch(SHELL_HTML, /getElementById\("start-local"\)\.disabled = false/u);
+  assertMatch(SHELL_HTML, /getElementById\("add-server"\)\.disabled = false/u);
+  assertMatch(SHELL_HTML, /getElementById\("open-log-directory"\)\.disabled = false/u);
+});
+
 Deno.test("shell keeps the remote card and adds a local card", () => {
   assertEquals([...SHELL_HTML.matchAll(/class="masthead-copy"/gu)].length, 2);
   assertMatch(

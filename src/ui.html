@@ -754,8 +754,10 @@
               <p class="page-description">本地启动 dsh web，或通过 SSH Host 建立远程连接。</p>
             </div>
             <div class="header-actions">
-              <button id="start-local" class="button secondary" type="button">本地模式</button>
-              <button id="add-server" class="button primary" type="button">添加服务器</button>
+              <button id="start-local" class="button secondary" type="button"
+                disabled>本地模式</button>
+              <button id="add-server" class="button primary" type="button"
+                disabled>添加服务器</button>
             </div>
           </header>
 
@@ -812,7 +814,8 @@
           <footer class="diagnostics">
             <div class="diagnostics-row">
               <span>日志目录：<code id="log-directory" class="log-path">正在初始化...</code></span>
-              <button id="open-log-directory" class="text-button" type="button">打开目录</button>
+              <button id="open-log-directory" class="text-button" type="button"
+                disabled>打开目录</button>
             </div>
             <div>认证使用 <code>.ssh/config</code>、密钥或 <code>ssh-agent</code>；应用不处理密码。</div>
           </footer>
@@ -928,6 +931,9 @@
           var data = await globalThis.bindings.bootstrap();
           state.profiles = data.profiles;
           state.ssh = data.ssh;
+          document.getElementById("start-local").disabled = false;
+          document.getElementById("add-server").disabled = false;
+          document.getElementById("open-log-directory").disabled = false;
           document.getElementById("log-directory").textContent = data.logDirectory;
           document.getElementById("browser-backend").textContent = data.browserBackend;
           renderSshStatus();
@@ -935,7 +941,12 @@
           if (data.startupNotice) showNotice(data.startupNotice);
           if (!state.profiles.length) openEditor();
         } catch (error) {
-          showNotice(errorMessage(error));
+          var detail = errorMessage(error);
+          if (detail.indexOf("No binding for 'bootstrap'") !== -1) {
+            window.setTimeout(bootstrap, 50);
+            return;
+          }
+          showNotice(detail);
           document.getElementById("server-count").textContent = "配置读取失败";
         }
       }
