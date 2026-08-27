@@ -28,21 +28,6 @@ Deno.test("spawnHiddenProcess redirects output to a dedicated file", async () =>
   assertStringIncludes(await readProcessOutputTail(child.outputFile), "stderr line");
 });
 
-Deno.test("spawnHiddenProcess runs Windows cmd shims through ComSpec", async () => {
-  if (Deno.build.os !== "windows") return;
-  const directory = await Deno.makeTempDir();
-  const script = join(directory, "fixture.cmd");
-  await Deno.writeTextFile(script, "@echo off\r\necho cmd output\r\n");
-
-  const child = spawnHiddenProcess(script, [], directory);
-
-  assertEquals(await child.status, { success: true, code: 0, signal: null });
-  assertStringIncludes(await Deno.readTextFile(child.outputFile), "cmd output");
-  const probe = await runHiddenCommand(script, []);
-  assertEquals(probe.success, true);
-  assertStringIncludes(probe.stdout, "cmd output");
-});
-
 Deno.test("spawnHiddenProcess runs Windows .ps1 shims through PowerShell", async () => {
   if (Deno.build.os !== "windows") return;
   const directory = await Deno.makeTempDir();
@@ -110,16 +95,15 @@ Deno.test("spawnHiddenProcess kill terminates the process tree on Windows", asyn
   if (Deno.build.os !== "windows") return;
   const directory = await Deno.makeTempDir();
   const pidFile = join(directory, "child.pid");
-  // A .cmd shim runs node synchronously, so the spawned child is cmd.exe and the
-  // node process is a grandchild that must not survive kill.
-  const script = join(directory, "long-running.cmd");
+  // A .ps1 shim runs node synchronously, so the spawned child is PowerShell and
+  // the node process is a child that must not survive kill.
+  const script = join(directory, "long-running.ps1");
   const jsPath = pidFile.replaceAll("\\", "/");
   await Deno.writeTextFile(
     script,
     [
-      "@echo off",
       `node -e "require('node:fs').writeFileSync('${jsPath}', String(process.pid)); setInterval(() => {}, 1000)"`,
-    ].join("\r\n"),
+    ].join("\n"),
   );
 
   const child = spawnHiddenProcess(script, [], directory);

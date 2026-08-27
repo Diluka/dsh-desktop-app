@@ -152,7 +152,7 @@ Deno.test("probeLocalDshEnvironment prefers Windows .ps1 shims", async () => {
   });
 });
 
-Deno.test("probeLocalDshEnvironment falls back to .cmd when the .ps1 shim is missing", async () => {
+Deno.test("probeLocalDshEnvironment reports missing tools when .ps1 shims are absent", async () => {
   const environment = await probeLocalDshEnvironment(
     (command) => {
       if (command === "powershell.exe") return Promise.resolve(versionOutput(""));
@@ -161,12 +161,13 @@ Deno.test("probeLocalDshEnvironment falls back to .cmd when the .ps1 shim is mis
     "windows",
   );
 
-  assertEquals(environment.dsh, { command: "dsh.cmd", version: "0.1.1-rc.2" });
-  assertEquals(environment.npx, { command: "npx.cmd", version: "0.1.1-rc.2" });
-  assertEquals(environment.launcher, { kind: "dsh", command: "dsh.cmd", prefix: [] });
+  assertEquals(environment.node, { command: "node", version: "v24.19.0" });
+  assertEquals(environment.dsh, undefined);
+  assertEquals(environment.npx, undefined);
+  assertEquals(environment.launcher, undefined);
 });
 
-Deno.test("probeLocalDshEnvironment falls back to npx when dsh shims fail", async () => {
+Deno.test("probeLocalDshEnvironment falls back to npx when dsh is absent", async () => {
   const environment = await probeLocalDshEnvironment(
     (command, args) => {
       if (command === "powershell.exe") {
@@ -175,7 +176,6 @@ Deno.test("probeLocalDshEnvironment falls back to npx when dsh shims fail", asyn
         if (name?.startsWith("dsh")) return Promise.resolve(versionOutput(""));
         return Promise.resolve(versionOutput(name ? windowsPs1Path(name) : ""));
       }
-      if (command === "dsh.cmd") return Promise.resolve(versionOutput("", false));
       return Promise.resolve(versionOutput(command === "node" ? "v24.19.0" : "11.6.2"));
     },
     "windows",

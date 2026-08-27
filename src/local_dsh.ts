@@ -141,13 +141,14 @@ function toolInfo(values: Record<string, string>, tool: string): LocalToolInfo |
 async function probeWindowsEnvironment(
   probe: (command: string, args: string[]) => Promise<CommandProbeOutput>,
 ): Promise<LocalDshEnvironment> {
-  // npm installs .ps1 and .cmd shims together. Prefer the .ps1 shim, launched
-  // through PowerShell, so `node` stays a direct child of the PowerShell
-  // process and taskkill /t can terminate the whole tree; .cmd is the fallback.
+  // npm installs .ps1 shims on Windows, and PowerShell is built in, so only the
+  // .ps1 shim is probed — no cmd.exe/.cmd fallback. Launching the .ps1 through
+  // PowerShell keeps `node` a direct child so the job object and taskkill /t can
+  // terminate the whole tree.
   const [nodeProbe, dshProbe, npxProbe] = await Promise.all([
     probeWindowsTool(["node"], probe),
-    probeWindowsTool(["dsh.ps1", "dsh.cmd"], probe),
-    probeWindowsTool(["npx.ps1", "npx.cmd"], probe),
+    probeWindowsTool(["dsh.ps1"], probe),
+    probeWindowsTool(["npx.ps1"], probe),
   ]);
   const node = nodeProbe.info;
   const dsh = dshProbe.info;
@@ -168,14 +169,15 @@ async function probeWindowsTool(
     if (command.toLowerCase().endsWith(".ps1")) {
       // powershell -File does not search PATH for a bare script name, so resolve
       // the shim's absolute path first. Launching the .ps1 through PowerShell
-      // keeps `node` a direct child so taskkill /t can terminate the whole tree.
+      // keeps `node` a direct child so the job object and taskkill /t can
+      // terminate the whole tree.
       const path = await resolveWindowsPs1Path(command, probe);
       if (!path) continue;
       const result = await probeLocalTool(path, probe);
       if (result.info) return result;
       continue;
     }
-    // .cmd shims are resolved by cmd.exe through the bare name on PATH.
+    // node.exe is resolved through PATH by CreateProcess directly.
     const result = await probeLocalTool(command, probe);
     if (result.info) return result;
   }

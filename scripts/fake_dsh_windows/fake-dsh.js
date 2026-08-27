@@ -3,7 +3,7 @@
 // 127.0.0.1:<port> and runs forever, spawning one child node process to mirror
 // `dsh web` (main process + child process).
 //
-// Usage (mirrors how the desktop app launches the .ps1/.cmd shim):
+// Usage (mirrors how the desktop app launches the .ps1 shim):
 //   powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File fake-dsh.ps1 web --host 127.0.0.1 --port 47890 --no-open
 const http = require("node:http");
 const { spawn } = require("node:child_process");

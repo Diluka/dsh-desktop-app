@@ -1,6 +1,6 @@
 # run-fake-dsh-test.ps1
 # 用 fake-dsh 一键启动 DSH Desktop 并验证进程清理（无需本机安装 dsh）。
-# 把 dsh.ps1/dsh.cmd/fake-dsh.js 和 DSH-Desktop.exe 放同一目录，运行 .\run-fake-dsh-test.ps1
+# 把 dsh.ps1/fake-dsh.js 和 DSH-Desktop.exe 放同一目录，运行 .\run-fake-dsh-test.ps1
 $ErrorActionPreference = "Continue"
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Definition

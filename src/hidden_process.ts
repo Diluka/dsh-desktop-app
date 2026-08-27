@@ -29,12 +29,12 @@ function resolveProcessLaunch(
   args: string[],
 ): { command: string; args: string[] } {
   if (Deno.build.os !== "windows") return { command, args };
-  const lower = command.toLowerCase();
-  if (lower.endsWith(".ps1")) {
-    // npm installs .ps1 shims alongside .cmd. Running the .ps1 through
-    // PowerShell keeps `node` a direct child of the PowerShell process, so
-    // taskkill /t can terminate the whole tree instead of orphaning the node
-    // processes that `dsh web` spawns.
+  if (command.toLowerCase().endsWith(".ps1")) {
+    // npm installs .ps1 shims on Windows; PowerShell is built in, so no cmd.exe
+    // dependency is needed. Running the .ps1 through PowerShell keeps `node` a
+    // direct child of the PowerShell process, so taskkill /t and the job object
+    // can terminate the whole tree instead of orphaning the node processes that
+    // `dsh web` spawns.
     return {
       command: "powershell.exe",
       args: [
@@ -48,21 +48,15 @@ function resolveProcessLaunch(
       ],
     };
   }
-  if (lower.endsWith(".cmd")) {
-    return {
-      command: Deno.env.get("ComSpec") ?? "cmd.exe",
-      args: ["/d", "/s", "/c", command, ...args],
-    };
-  }
   return { command, args };
 }
 
 function killManagedProcess(child: ChildProcess, signal: Deno.Signal): void {
-  // On Windows the spawned child is a shell (cmd.exe for .cmd, PowerShell for
-  // .ps1), and killing only that shell with child.kill leaves its descendants
-  // (the node processes running `dsh web`) running, since Windows does not
-  // cascade process termination to children. Terminate the whole tree with
-  // taskkill /t so nothing is left behind after the window closes.
+  // On Windows the spawned child is the PowerShell process, and killing only
+  // that process with child.kill leaves its descendants (the node processes
+  // running `dsh web`) running, since Windows does not cascade process
+  // termination to children. Terminate the whole tree with taskkill /t so
+  // nothing is left behind after the window closes.
   if (Deno.build.os === "windows" && child.pid && child.exitCode === null) {
     const killer = spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
       windowsHide: WINDOWS_HIDE_PROCESS,
