@@ -1,7 +1,7 @@
 import type { Logger } from "pino";
 import {
+  drainProcessStderr,
   isCommandNotFoundError,
-  monitorProcessStderr,
   spawnHiddenProcess,
 } from "./hidden_process.ts";
 import { allocateLoopbackPort, probeHttp } from "./loopback_http.ts";
@@ -146,7 +146,7 @@ async function startLocalDshAttempt(
   }
 
   const diagnostics: LocalDshDiagnostics = { codes: new Set(), details: [] };
-  const stderr = monitorProcessStderr(child.stderr, (line) => {
+  const stderr = drainProcessStderr(child.stderr, (line) => {
     collectLocalDshDiagnostic(diagnostics, line);
   });
   const web = new LocalDshWeb(
@@ -183,6 +183,7 @@ async function startLocalDshAttempt(
     ]);
     if (outcome.kind === "exit") throw failureFromExit(outcome.value);
     if (outcome.kind === "ready") {
+      stderr.stopCapturing();
       logger.info({
         event: "local_dsh.ready",
         port: localPort,

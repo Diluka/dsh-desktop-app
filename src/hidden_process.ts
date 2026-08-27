@@ -92,17 +92,24 @@ export function isCommandNotFoundError(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
-export function monitorProcessStderr(
+export function drainProcessStderr(
   stream: ReadableStream<Uint8Array>,
   onLine: (line: string) => void,
-): { done: Promise<void> } {
+): { done: Promise<void>; stopCapturing(): void } {
+  let captureLine: ((line: string) => void) | undefined = onLine;
+  let pending = "";
   const done = (async () => {
     const reader = stream.getReader();
     const decoder = new TextDecoder();
-    let pending = "";
     try {
       while (true) {
         const { done: readDone, value } = await reader.read();
+        const capture = captureLine;
+        if (!capture) {
+          if (readDone) break;
+          continue;
+        }
+
         pending += readDone ? decoder.decode() : decoder.decode(value, { stream: true });
         const lines = pending.split(/\r?\n/u);
         pending = readDone ? "" : lines.pop() ?? "";
@@ -115,7 +122,7 @@ export function monitorProcessStderr(
             })
             .join("")
             .trim();
-          if (text) onLine(text);
+          if (text) capture(text);
         }
         if (readDone) break;
       }
@@ -124,5 +131,11 @@ export function monitorProcessStderr(
     }
   })();
 
-  return { done };
+  return {
+    done,
+    stopCapturing() {
+      captureLine = undefined;
+      pending = "";
+    },
+  };
 }

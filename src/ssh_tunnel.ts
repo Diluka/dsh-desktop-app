@@ -1,7 +1,7 @@
 import type { Logger } from "pino";
 import {
+  drainProcessStderr,
   isCommandNotFoundError,
-  monitorProcessStderr,
   runHiddenCommand,
   spawnHiddenProcess,
 } from "./hidden_process.ts";
@@ -205,7 +205,7 @@ async function startTunnelAttempt(
   }
 
   const diagnostics: SshDiagnostics = { codes: new Set(), details: [] };
-  const stderr = monitorProcessStderr(child.stderr, (line) => {
+  const stderr = drainProcessStderr(child.stderr, (line) => {
     collectSshDiagnostic(diagnostics, line);
   });
   const tunnel = new SshTunnel(
@@ -243,6 +243,7 @@ async function startTunnelAttempt(
     ]);
     if (outcome.kind === "exit") throw failureFromExit(outcome.value);
     if (outcome.kind === "ready") {
+      stderr.stopCapturing();
       logger.info({
         event: "ssh.tunnel_ready",
         profileId: profile.id,
