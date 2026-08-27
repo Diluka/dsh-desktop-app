@@ -91,10 +91,6 @@ export function buildDshWebArguments(port: number): string[] {
   return ["web", "--host", "127.0.0.1", "--port", String(port), "--no-open"];
 }
 
-export function buildNpxDshWebArguments(port: number): string[] {
-  return ["-y", NPX_DSH_PACKAGE, ...buildDshWebArguments(port)];
-}
-
 export async function startLocalDshWeb(
   logger: Logger,
   options: StartLocalDshOptions,
@@ -153,7 +149,13 @@ async function startLocalDshAttempt(
   if (allocation.kind === "cancel") throw cancelledError();
   throwIfCancelled(options.signal);
   const localPort = allocation.port;
-  const { command, args } = resolveLocalDshLaunch(launcher, localPort, options.command);
+  const prefix: [string, ...string[]] = launcher === "npx"
+    ? [Deno.build.os === "windows" ? "npx.cmd" : "npx", "-y", NPX_DSH_PACKAGE]
+    : [options.command ?? "dsh"];
+  const [command, ...args] = [
+    ...prefix,
+    ...buildDshWebArguments(localPort),
+  ] as [string, ...string[]];
 
   logger.info({
     event: "local_dsh.starting",
@@ -231,23 +233,6 @@ async function startLocalDshAttempt(
     }
     if (pause.kind === "exit") throw await failureFromExit(pause.value);
   }
-}
-
-function resolveLocalDshLaunch(
-  launcher: "dsh" | "npx",
-  port: number,
-  dshCommand?: string,
-): { command: string; args: string[] } {
-  if (launcher === "dsh") {
-    return { command: dshCommand ?? "dsh", args: buildDshWebArguments(port) };
-  }
-  const args = buildNpxDshWebArguments(port);
-  return Deno.build.os === "windows"
-    ? {
-      command: Deno.env.get("ComSpec") ?? "cmd.exe",
-      args: ["/d", "/s", "/c", "npx.cmd", ...args],
-    }
-    : { command: "npx", args };
 }
 
 function classifyLocalDshFailure(detail: string, processError?: Error): LocalDshError {

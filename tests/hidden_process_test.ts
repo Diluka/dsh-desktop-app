@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { assert, assertEquals, assertFalse, assertStringIncludes } from "@std/assert";
 import {
   isCommandNotFoundError,
@@ -24,6 +25,18 @@ Deno.test("spawnHiddenProcess redirects output to a dedicated file", async () =>
   assertStringIncludes(output, "stdout line");
   assertStringIncludes(output, "stderr line");
   assertStringIncludes(await readProcessOutputTail(child.outputFile), "stderr line");
+});
+
+Deno.test("spawnHiddenProcess runs Windows cmd shims through ComSpec", async () => {
+  if (Deno.build.os !== "windows") return;
+  const directory = await Deno.makeTempDir();
+  const script = join(directory, "fixture.cmd");
+  await Deno.writeTextFile(script, "@echo off\r\necho cmd output\r\n");
+
+  const child = spawnHiddenProcess(script, [], directory);
+
+  assertEquals(await child.status, { success: true, code: 0, signal: null });
+  assertStringIncludes(await Deno.readTextFile(child.outputFile), "cmd output");
 });
 
 Deno.test("readProcessOutputTail starts at a complete UTF-8 character", async () => {

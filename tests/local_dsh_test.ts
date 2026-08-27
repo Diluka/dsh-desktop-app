@@ -1,10 +1,5 @@
 import { assert, assertEquals, assertMatch, assertRejects } from "@std/assert";
-import {
-  buildDshWebArguments,
-  buildNpxDshWebArguments,
-  LocalDshError,
-  startLocalDshWeb,
-} from "../src/local_dsh.ts";
+import { buildDshWebArguments, LocalDshError, startLocalDshWeb } from "../src/local_dsh.ts";
 import { fakeChild, memoryLogger, tempFile } from "./test_helpers.ts";
 
 Deno.test("buildDshWebArguments starts loopback web without opening a browser", () => {
@@ -67,14 +62,8 @@ Deno.test("startLocalDshWeb falls back to npx when dsh is missing", async () => 
   });
 
   assertEquals(commands[0], "dsh");
-  if (Deno.build.os === "windows") {
-    assertMatch(commands[1], /cmd(?:\.exe)?$/iu);
-    assertEquals(npxArgs.slice(0, 4), ["/d", "/s", "/c", "npx.cmd"]);
-    assertEquals(npxArgs.slice(4), buildNpxDshWebArguments(45001));
-  } else {
-    assertEquals(commands[1], "npx");
-    assertEquals(npxArgs, buildNpxDshWebArguments(45001));
-  }
+  assertEquals(npxArgs, ["-y", "@deepseek-ai/dsh", ...buildDshWebArguments(45001)]);
+  assertEquals(commands[1], Deno.build.os === "windows" ? "npx.cmd" : "npx");
   const stopped = web.stop();
   child.finish({ success: true, code: 0, signal: null });
   await stopped;

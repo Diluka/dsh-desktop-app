@@ -28,11 +28,17 @@ export function spawnHiddenProcess(
   args: string[],
   logDirectory: string,
 ): ManagedHiddenProcess {
+  const launch = Deno.build.os === "windows" && command.toLowerCase().endsWith(".cmd")
+    ? {
+      command: Deno.env.get("ComSpec") ?? "cmd.exe",
+      args: ["/d", "/s", "/c", command, ...args],
+    }
+    : { command, args };
   const outputFile = join(logDirectory, `dsh-desktop-child-${crypto.randomUUID()}.log`);
   const outputFd = openSync(outputFile, "a", 0o600);
   const child = (() => {
     try {
-      return spawn(command, args, {
+      return spawn(launch.command, launch.args, {
         windowsHide: WINDOWS_HIDE_PROCESS,
         stdio: ["ignore", outputFd, outputFd],
       });
