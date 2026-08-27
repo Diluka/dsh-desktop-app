@@ -18,8 +18,7 @@ DSH Web。 Windows 同时提供内置 Chromium（CEF）与系统 WebView2 两种
 - 本地转发只绑定 `127.0.0.1`，空闲端口由应用自动选择。
 - SSH 成功后移除选择页的本地 bindings，再导航到 DSH Web。
 - Pino JSONL 日志记录启动、配置、本地 DSH、OpenSSH、隧道和退出生命周期。
-- CEF 与 WebView2 共用配置、SSH、日志和本地选择页；系统 locale 仅写入日志，界面语言使用 DSH
-  已保存的偏好。
+- CEF 与 WebView2 共用配置、SSH、日志和本地选择页；界面语言由 DSH 自身管理。
 - 支持 Windows x86_64 的 CEF/WebView2，以及 Linux x86_64、macOS arm64 与 macOS x86_64 CEF 构建。
 
 首版认证使用密钥或 `ssh-agent`，不在应用内接收或保存 SSH 密码、私钥内容和 passphrase。
@@ -167,7 +166,7 @@ stdout/stderr，不经过脱敏。外发前请检查其中的 Host、用户名�
 ## 项目结构
 
 ```text
-app.ts              共享桌面生命周期、bindings、安全导航与 locale 诊断
+app.ts              共享桌面生命周期、bindings 与安全导航
 main.ts             CEF 入口
 main_webview.ts     WebView2 入口
 assets/             SVG 源图、1024px PNG、Windows ICO 与 macOS ICNS

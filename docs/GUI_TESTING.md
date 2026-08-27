@@ -160,27 +160,20 @@ tail -f "$(ls -t "$log_dir"/dsh-desktop-*.jsonl | head -n 1)"
 
 预期选择页显示对应平台的安装指引，连接按钮不可用，日志包含 `ssh.probe` 且 `available` 为 `false`。
 
-### 8. 语言与系统 locale
-
-1. 在 Linux/macOS CEF 版与 Windows CEF/WebView2 两个版本分别启动，确认不出现 locale 自重启空白窗口。
-2. 在 DSH 设置中保存语言后重启桌面应用，确认偏好仍然生效。
-3. 确认 `app.start.systemLocale` 是运行机器检测到的 locale；该字段只用于诊断，不控制 DSH 界面语言。
-4. locale 检测失败时该字段缺席，应用仍应正常启动。
-
-### 9. 打开日志目录
+### 8. 打开日志目录
 
 在服务器选择页点击“打开目录”，确认 Windows Explorer、macOS Finder 或 Linux
 默认文件管理器打开当前日志目录。 命令成功交给系统时日志包含 `logs.directory_open_requested`。Linux
 缺少 `xdg-open` 或系统命令失败时，页面必须弹窗提示且日志包含 `logs.directory_open_failed`。
 
-### 10. Windows 隐藏 OpenSSH 窗口
+### 9. Windows 隐藏 OpenSSH 窗口
 
 在 Windows 上分别观察应用启动时的 `ssh -V` 探测、点击“连接”后的长连接，以及点击本地启动后的 npx
 fallback。
 
 预期全程不出现可见的 `cmd.exe`/控制台闪窗；连接、错误提示、日志和关闭时的子进程清理行为保持不变。
 
-### 11. Windows 和 macOS 应用图标
+### 10. Windows 和 macOS 应用图标
 
 1. 解压两个 Windows ZIP 后分别检查各自目录内的 `DSH-Desktop.exe`、运行窗口和任务栏。
 2. 在 Windows 浅色和深色模式下重复检查；若任务栏保留旧缓存，先取消固定再重新固定后复查。
@@ -189,7 +182,7 @@ fallback。
 预期 Windows 与 macOS 均显示带细边框的黑色底、白色鱼形项目图标，而不是系统或浏览器默认图标；图标在
 浅色和深色系统外观中均清晰可辨。关闭应用后用新分发包完整覆盖旧目录，确认应用可正常启动且服务器配置仍保留。
 
-### 12. 本地模式、npx 回退与终止
+### 11. 本地模式、npx 回退与终止
 
 1. 从 Finder 启动应用，确认窗口立即出现；打开“本地模式”，环境检测完成后显示平台、Node.js、DSH CLI 和
    npx 版本，条件不足时启动按钮禁用。

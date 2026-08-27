@@ -21,14 +21,6 @@ interface ShellServer {
   shutdown(): Promise<void>;
 }
 
-function detectSystemLocale(): string | undefined {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().locale;
-  } catch {
-    return undefined;
-  }
-}
-
 export async function startDesktop(backend: DesktopBackend): Promise<void> {
   const shellServer = Deno.serve({ hostname: "127.0.0.1", port: 0 }, handleShellRequest);
   try {
@@ -43,7 +35,6 @@ async function startDesktopWithShellServer(
   backend: DesktopBackend,
   shellServer: ShellServer,
 ): Promise<void> {
-  const systemLocale = detectSystemLocale();
   const shellUrl = resolveShellUrl(shellServer.addr);
   const paths = resolveAppPaths();
   const logger = await createLogger(paths.logDirectory);
@@ -55,7 +46,6 @@ async function startDesktopWithShellServer(
     os: Deno.build.os,
     arch: Deno.build.arch,
     backend,
-    ...(systemLocale ? { systemLocale } : {}),
   }, "DSH Desktop is starting");
   const { store, recoveredBackup } = await ProfileStore.open(paths.configFile);
   let startupNotice = recoveredBackup
