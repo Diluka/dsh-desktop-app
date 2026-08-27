@@ -825,6 +825,10 @@
               title="日志目录正在初始化..." aria-label="打开日志目录" disabled>
               <span>日志</span><strong>打开目录</strong>
             </button>
+            <button id="check-update" class="runtime-row runtime-log-button" type="button"
+              title="检查更新" aria-label="检查更新" disabled>
+              <span>更新</span><strong id="update-status">不可用</strong>
+            </button>
           </div>
         </div>
       </aside>
@@ -950,6 +954,17 @@
       </form>
     </dialog>
 
+    <dialog id="update-confirmation" class="connecting-card confirmation" aria-modal="true"
+      aria-labelledby="update-confirmation-title" aria-describedby="update-confirmation-message">
+      <h3 id="update-confirmation-title"></h3>
+      <p id="update-confirmation-message"></p>
+      <form class="form-actions" method="dialog">
+        <button class="button secondary" type="submit" value="cancel" autofocus>取消</button>
+        <button id="update-confirmation-action" class="button primary" type="submit"
+          value="confirm"></button>
+      </form>
+    </dialog>
+
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
     <div id="connecting" class="connecting" role="dialog" aria-modal="true"
       aria-labelledby="connecting-title" hidden>
@@ -984,6 +999,8 @@
         editingId: null,
         mode: "remote",
         ready: false,
+        updatesSupported: false,
+        updateBusy: false,
       };
       var modeButtons = Array.from(document.querySelectorAll(".mode-option"));
       var remoteModePanel = document.getElementById("remote-mode-panel");
@@ -1001,6 +1018,10 @@
       var localCancelRequested = false;
       var deleteConfirmation = document.getElementById("delete-confirmation");
       var deleteConfirmationMessage = document.getElementById("delete-confirmation-message");
+      var updateConfirmation = document.getElementById("update-confirmation");
+      var updateConfirmationTitle = document.getElementById("update-confirmation-title");
+      var updateConfirmationMessage = document.getElementById("update-confirmation-message");
+      var updateConfirmationAction = document.getElementById("update-confirmation-action");
       var toastTimer;
       var themeMedia = window.matchMedia("(prefers-color-scheme: dark)");
       var themeButtons = Array.from(document.querySelectorAll(".theme-option"));
@@ -1033,6 +1054,9 @@
       document.getElementById("close-editor").addEventListener("click", closeEditor);
       document.getElementById("cancel-editor").addEventListener("click", closeEditor);
       document.getElementById("open-log-directory").addEventListener("click", openLogDirectory);
+      document.getElementById("check-update").addEventListener("click", function () {
+        void checkForUpdate(false);
+      });
       form.addEventListener("submit", saveProfile);
 
       bootstrap();
@@ -1106,6 +1130,7 @@
         state.profiles = data.profiles;
         state.ssh = data.ssh;
         state.localEnvironment = data.localEnvironment;
+        state.updatesSupported = Boolean(data.updatesSupported);
         if (firstBootstrap) setMode(data.mode, false);
         state.ready = true;
         document.getElementById("add-server").disabled = false;
@@ -1114,9 +1139,60 @@
         logButton.title = data.logDirectory;
         logButton.setAttribute("aria-label", "打开日志目录：" + data.logDirectory);
         document.getElementById("browser-backend").textContent = data.browserBackend;
+        renderUpdateStatus(state.updatesSupported ? "可检查" : "不可用");
         renderSshStatus();
         renderLocalEnvironment();
         renderProfiles();
+        if (firstBootstrap && state.updatesSupported) void checkForUpdate(true);
+      }
+
+      function renderUpdateStatus(message) {
+        var button = document.getElementById("check-update");
+        button.disabled = !state.updatesSupported || state.updateBusy;
+        document.getElementById("update-status").textContent = message;
+      }
+
+      function askAboutUpdate(title, message, action) {
+        updateConfirmationTitle.textContent = title;
+        updateConfirmationMessage.textContent = message;
+        updateConfirmationAction.textContent = action;
+        updateConfirmation.returnValue = "";
+        return new Promise(function (resolve) {
+          updateConfirmation.addEventListener("close", function () {
+            resolve(updateConfirmation.returnValue === "confirm");
+          }, { once: true });
+          updateConfirmation.showModal();
+        });
+      }
+
+      async function checkForUpdate(automatic) {
+        if (!state.updatesSupported || state.updateBusy) return;
+        state.updateBusy = true;
+        renderUpdateStatus("检查中");
+        try {
+          var update = await globalThis.bindings.checkForUpdate();
+          if (!update.available) {
+            renderUpdateStatus("已是最新");
+            if (!automatic) showToast("当前已经是最新版本");
+            return;
+          }
+          renderUpdateStatus("发现新版本");
+          if (await askAboutUpdate("发现新版本", "点击确定打开 Release 页面手动下载。", "打开下载页")) {
+            try {
+              await globalThis.bindings.openUpdateReleasePage();
+              renderUpdateStatus("手动下载");
+            } catch (error) {
+              renderUpdateStatus("打开失败");
+              showToast(errorMessage(error));
+            }
+          }
+        } catch (error) {
+          renderUpdateStatus("检查失败");
+          if (!automatic) showToast(errorMessage(error));
+        } finally {
+          state.updateBusy = false;
+          renderUpdateStatus(document.getElementById("update-status").textContent);
+        }
       }
 
       function renderSshStatus() {

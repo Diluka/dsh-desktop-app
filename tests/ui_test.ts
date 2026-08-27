@@ -11,6 +11,8 @@ Deno.test("shell html has key elements and parseable inline scripts", () => {
       "remote-port",
       "server-list",
       "toast",
+      "check-update",
+      "update-status",
     ]
   ) {
     assertMatch(SHELL_HTML, new RegExp(`id="${id}"`, "u"));
@@ -28,6 +30,7 @@ Deno.test("shell waits for backend bindings before enabling actions", () => {
   assertMatch(SHELL_HTML, /<button id="start-local"[^>]*disabled>/u);
   assertMatch(SHELL_HTML, /<button id="add-server"[^>]*disabled>/u);
   assertMatch(SHELL_HTML, /<button id="open-log-directory"[^>]*disabled>/u);
+  assertMatch(SHELL_HTML, /<button id="check-update"[^>]*disabled>/u);
   assertMatch(SHELL_HTML, /No binding for 'bootstrap'/u);
   assertMatch(SHELL_HTML, /state\.ready = true/u);
   assertMatch(SHELL_HTML, /function applyBootstrapData\(data\)/u);
@@ -40,6 +43,9 @@ Deno.test("shell waits for backend bindings before enabling actions", () => {
   assertMatch(SHELL_HTML, /logButton\.disabled = false/u);
   assertMatch(SHELL_HTML, /logButton\.title = data\.logDirectory/u);
   assertMatch(SHELL_HTML, /<div class="runtime-note">[\s\S]*id="open-log-directory"/u);
+  assertMatch(SHELL_HTML, /id="check-update"[\s\S]*id="update-status"/u);
+  assertMatch(SHELL_HTML, /function checkForUpdate\(automatic\)/u);
+  assertMatch(SHELL_HTML, /openUpdateReleasePage\(\)/u);
   assertFalse(/id="log-directory"/u.test(SHELL_HTML));
 });
 
@@ -77,6 +83,11 @@ Deno.test("shell renders Unicode delete confirmation in-page", () => {
   );
   assertMatch(SHELL_HTML, /<form class="form-actions" method="dialog">/u);
   assertMatch(SHELL_HTML, /deleteConfirmationMessage\.textContent =/u);
+  assertMatch(
+    SHELL_HTML,
+    /<dialog id="update-confirmation"[^>]+aria-modal="true"[^>]*>/u,
+  );
+  assertMatch(SHELL_HTML, /function askAboutUpdate\(/u);
 });
 
 Deno.test("handleShellRequest serves safe shell responses without local tunnel internals", async () => {
