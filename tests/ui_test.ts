@@ -48,7 +48,10 @@ Deno.test("shell switches between separate remote and local mode panels", () => 
   assertMatch(SHELL_HTML, /id="local-mode-panel"[^>]+hidden/u);
   assertMatch(SHELL_HTML, /<h2 id="remote-mode-title">选择服务器<\/h2>/u);
   assertMatch(SHELL_HTML, /<h2 id="local-mode-title">本地模式<\/h2>/u);
-  assertMatch(SHELL_HTML, /function setMode\(mode\)/u);
+  assertMatch(SHELL_HTML, /function setMode\(mode, persist\)/u);
+  assertMatch(SHELL_HTML, /localStorage\.getItem\("dsh-desktop-mode"\)/u);
+  assertMatch(SHELL_HTML, /localStorage\.setItem\("dsh-desktop-mode", state\.mode\)/u);
+  assertMatch(SHELL_HTML, /setMode\(state\.mode, false\)/u);
   for (
     const id of [
       "local-platform",

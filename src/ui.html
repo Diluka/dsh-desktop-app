@@ -982,12 +982,17 @@
     (function () {
       "use strict";
 
+      var storedMode = "remote";
+      try {
+        var savedMode = localStorage.getItem("dsh-desktop-mode");
+        if (savedMode === "remote" || savedMode === "local") storedMode = savedMode;
+      } catch (_) {}
       var state = {
         profiles: [],
         ssh: { available: false },
         localEnvironment: { canStart: false },
         editingId: null,
-        mode: "remote",
+        mode: storedMode,
         ready: false,
       };
       var modeButtons = Array.from(document.querySelectorAll(".mode-option"));
@@ -1023,9 +1028,10 @@
 
       modeButtons.forEach(function (button) {
         button.addEventListener("click", function () {
-          setMode(button.dataset.mode);
+          setMode(button.dataset.mode, true);
         });
       });
+      setMode(state.mode, false);
       document.getElementById("start-local").addEventListener("click", connectLocal);
       cancelLocalButton.addEventListener("click", cancelLocalStart);
       document.getElementById("add-server").addEventListener("click", function () {
@@ -1061,7 +1067,7 @@
         }
       }
 
-      function setMode(mode) {
+      function setMode(mode, persist) {
         var local = mode === "local";
         state.mode = local ? "local" : "remote";
         modeButtons.forEach(function (button) {
@@ -1073,6 +1079,11 @@
         diagnosticNote.textContent = local
           ? "本地模式优先使用 dsh；不可用时通过 npx 启动。"
           : "认证使用 .ssh/config、密钥或 ssh-agent；应用不处理密码。";
+        if (persist) {
+          try {
+            localStorage.setItem("dsh-desktop-mode", state.mode);
+          } catch (_) {}
+        }
         if (!state.ready) return;
         notice.hidden = true;
         if (!local && !state.ssh.available) {
