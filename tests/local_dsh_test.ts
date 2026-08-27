@@ -164,33 +164,31 @@ Deno.test("probeLocalDshEnvironment treats a failing fallback dsh probe as missi
 
 Deno.test("probeLocalDshEnvironment falls back to resolved Windows npx when dsh is absent", async () => {
   const calls: string[] = [];
-  const nodePath = "C:\\Program Files\\nodejs\\node.exe";
-  const npxPath = "C:\\Program Files\\nodejs\\npx.cmd";
   const environment = await probeLocalDshEnvironment(
     (command) => {
       calls.push(command);
       return Promise.resolve(
-        versionOutput(command === nodePath ? "v24.19.0" : "11.6.2"),
+        versionOutput(command === "node" ? "v24.19.0" : "11.6.2"),
       );
     },
     "windows",
     (commands) => {
       assertEquals(commands, ["node", "dsh.cmd", "npx.cmd"]);
       return Promise.resolve({
-        node: nodePath,
-        "npx.cmd": npxPath,
+        node: "C:\\Program Files\\nodejs\\node.exe",
+        "npx.cmd": "C:\\Program Files\\nodejs\\npx.cmd",
       });
     },
   );
 
-  assertEquals(calls, [nodePath, npxPath]);
+  assertEquals(calls, ["node", "npx.cmd"]);
   assertEquals(environment, {
-    node: { command: nodePath, version: "v24.19.0" },
+    node: { command: "node", version: "v24.19.0" },
     dsh: undefined,
-    npx: { command: npxPath, version: "11.6.2" },
+    npx: { command: "npx.cmd", version: "11.6.2" },
     launcher: {
       kind: "npx",
-      command: npxPath,
+      command: "npx.cmd",
       prefix: ["-y", "@deepseek-ai/dsh"],
     },
   });

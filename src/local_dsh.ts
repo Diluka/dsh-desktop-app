@@ -152,9 +152,9 @@ async function probeWindowsEnvironment(
   );
   const [nodeProbe, dshProbe, npxProbe] = Object.keys(resolved).length > 0
     ? await Promise.all([
-      probeResolvedWindowsTool(nodeName, resolved, probe),
-      probeResolvedWindowsTool(dshName, resolved, probe),
-      probeResolvedWindowsTool(npxName, resolved, probe),
+      probeWindowsToolPresent(nodeName, resolved, probe),
+      probeWindowsToolPresent(dshName, resolved, probe),
+      probeWindowsToolPresent(npxName, resolved, probe),
     ])
     : await Promise.all([
       probeWindowsToolUnconfirmed(nodeName, probe),
@@ -172,13 +172,16 @@ async function probeWindowsEnvironment(
   return { node, dsh, npx, launcher };
 }
 
-async function probeResolvedWindowsTool(
+async function probeWindowsToolPresent(
   command: string,
   resolved: Record<string, string>,
   probe: (command: string, args: string[]) => Promise<CommandProbeOutput>,
 ): Promise<LocalToolProbeResult> {
-  const commandPath = resolved[command];
-  return commandPath ? await probeLocalTool(commandPath, probe) : { missing: true };
+  // Probe by bare name: cmd.exe resolves .cmd shims through the same PATH as
+  // where.exe, while an absolute path containing spaces (e.g.
+  // C:\Program Files\nodejs\npx.cmd) is unreliable through `cmd /c` quoting.
+  // where.exe resolution only asserts existence.
+  return resolved[command] ? await probeLocalTool(command, probe) : { missing: true };
 }
 
 // Fallback used when where.exe resolution returns nothing: cmd.exe reports a
