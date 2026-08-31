@@ -114,7 +114,7 @@ jobs:
           compression-level: 0
 
   release:
-    name: Update latest release
+    name: Recreate latest release
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     needs: package
     runs-on: ubuntu-24.04
@@ -145,7 +145,7 @@ jobs:
           test -s release-assets/DSH-Desktop-macos-x86_64.tar.gz
           ls -lh release-assets
 
-      - name: Create or replace latest release
+      - name: Delete and recreate latest release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -173,18 +173,13 @@ jobs:
           EOF
 
           if gh release view latest >/dev/null 2>&1; then
-            gh release upload latest "${assets[@]}" --clobber
-            git tag --force latest "${GITHUB_SHA}"
-            git push origin refs/tags/latest --force
-            gh release edit latest \
-              --target "${GITHUB_SHA}" \
-              --title "DSH Desktop - Latest Successful Build" \
-              --notes-file release-notes.md \
-              --latest
-          else
-            gh release create latest "${assets[@]}" \
-              --target "${GITHUB_SHA}" \
-              --title "DSH Desktop - Latest Successful Build" \
-              --notes-file release-notes.md \
-              --latest
+            gh release delete latest --yes --cleanup-tag
+          elif git ls-remote --exit-code --tags origin refs/tags/latest >/dev/null 2>&1; then
+            git push origin :refs/tags/latest
           fi
+
+          gh release create latest "${assets[@]}" \
+            --target "${GITHUB_SHA}" \
+            --title "DSH Desktop - Latest Successful Build" \
+            --notes-file release-notes.md \
+            --latest
