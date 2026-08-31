@@ -182,8 +182,9 @@ Pull Request 会运行：
 - Linux x86_64、Windows x86_64、macOS arm64、macOS x86_64 源码检查和单元测试；
 - Linux mise 与 nvm login-shell 环境验证。
 
-`main` 上述检查全部成功后，CI 在 Linux 上交叉构建四个 Windows/macOS 分发包，再删除旧滚动
-`latest` Release 和同名 tag，并重新创建同名 Release。发布任务会确认运行对应当前 `main`，防止较旧的工作流覆盖较新的制品。
+`main` 上述检查全部成功后，CI 在 Linux 上交叉构建四个 Windows/macOS 分发包，再删除旧滚动 `latest`
+Release 和同名 tag，并重新创建同名 Release。发布任务会确认运行对应当前
+`main`，防止较旧的工作流覆盖较新的制品。
 
 ## 源码结构
 
