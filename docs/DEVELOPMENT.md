@@ -172,9 +172,9 @@ Windows 构建脚本会规范化 launcher/runtime 文件名，并使用固定版
 资源。Windows ZIP 和 macOS tar.gz 可以在 Linux CI 上交叉构建。macOS `.app` 当前未进行 Apple
 Developer ID 签名或 notarization。
 
-`assets/icon-macos.svg` 记录 macOS 图标的设计布局，`assets/icon-macos.png` 是 1024 px 生产位图：
-图稿占 824 px，四边各保留 100 px 透明留白，以匹配 Dock 中其他 macOS 应用的视觉尺寸。图标测试校验
-设计布局、生产位图、标准 ICNS 槽位、各尺寸可见边界以及 ICNS 的 1024 px 表示与生产位图一致。
+`assets/icon-macos.png` 是 1024 px macOS 生产位图：图稿占 824 px，四边各保留 100 px 透明留白，
+以匹配 Dock 中其他 macOS 应用的视觉尺寸。图标测试校验生产位图、标准 ICNS 槽位、各尺寸可见边界以及
+ICNS 的 1024 px 表示与生产位图一致。
 
 Linux 目录包和 AppImage 任务供源码用户使用；滚动 `latest` Release 当前只发布 Windows 与 macOS 包。
 详见[发布制品说明](RELEASE_ARTIFACTS.md)。

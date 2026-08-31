@@ -9,13 +9,6 @@ type RgbaImage = {
 };
 
 Deno.test("macOS icon uses standard ICNS slots and optical padding", async () => {
-  const sourceSvg = await Deno.readTextFile(
-    new URL("../assets/icon-macos.svg", import.meta.url),
-  );
-  assert(
-    sourceSvg.includes('<image href="icon.svg" x="100" y="100" width="824" height="824" />'),
-  );
-
   const sourcePng = await Deno.readFile(new URL("../assets/icon-macos.png", import.meta.url));
   const sourceImage = await decodeRgbaPng(sourcePng);
   assertEquals([sourceImage.width, sourceImage.height], [1024, 1024]);
