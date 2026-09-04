@@ -92,21 +92,23 @@ function authenticatedLocalDshUrl(output: string, expectedUrl: string): string |
   let authenticatedUrl: string | undefined;
 
   for (const line of output.split(/\r?\n/u)) {
-    const match = /^dsh web:\s+(https?:\/\/\S+)/u.exec(line.trim());
-    if (!match) continue;
+    const prefix = "dsh web:";
+    const trimmed = line.trim();
+    if (!trimmed.startsWith(prefix)) continue;
+    const [value] = trimmed.slice(prefix.length).trimStart().split(/\s+/u, 1);
+    if (!value) continue;
 
     let candidate: URL;
     try {
-      candidate = new URL(match[1]);
+      candidate = new URL(value);
     } catch {
       continue;
     }
-    const entries = Array.from(candidate.searchParams.entries());
+    const token = candidate.searchParams.get("token");
     if (
       candidate.origin !== expected.origin || candidate.pathname !== "/" ||
-      candidate.username !== "" || candidate.password !== "" || candidate.hash !== "" ||
-      entries.length !== 1 || entries[0][0] !== "token" ||
-      !/^[A-Za-z0-9_-]+$/u.test(entries[0][1])
+      candidate.username !== "" || candidate.password !== "" ||
+      token === null || token.length === 0 || candidate.searchParams.getAll("token").length !== 1
     ) {
       continue;
     }

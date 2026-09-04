@@ -262,7 +262,7 @@ Deno.test("startLocalDshWeb uses the authenticated URL printed by current dsh", 
   const { logger } = await memoryLogger();
   const outputFile = await tempFile("authenticated-url.log");
   const token = "a".repeat(43);
-  const authenticatedUrl = `http://127.0.0.1:45003/?token=${token}`;
+  const authenticatedUrl = `http://127.0.0.1:45003/?source=terminal&token=${token}&future=1`;
   await Deno.writeTextFile(outputFile, "starting\n");
   const child = fakeChild(outputFile);
   const probedUrls: string[] = [];
