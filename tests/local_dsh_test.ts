@@ -223,7 +223,7 @@ Deno.test("probeLocalDshEnvironment reports no usable launcher", async () => {
   assertMatch(error.message, /dsh.*npx/u);
 });
 
-Deno.test("startLocalDshWeb starts a resolved dsh launcher", async () => {
+Deno.test("startLocalDshWeb starts a resolved legacy dsh launcher", async () => {
   const { logger } = await memoryLogger();
   const child = fakeChild();
   let capturedCommand = "";
@@ -256,6 +256,35 @@ Deno.test("startLocalDshWeb starts a resolved dsh launcher", async () => {
     signal: null,
     stopRequested: true,
   });
+});
+
+Deno.test("startLocalDshWeb uses the authenticated URL printed by current dsh", async () => {
+  const { logger } = await memoryLogger();
+  const outputFile = await tempFile("authenticated-url.log");
+  const token = "a".repeat(43);
+  const authenticatedUrl = `http://127.0.0.1:45003/?source=terminal&token=${token}&future=1`;
+  await Deno.writeTextFile(outputFile, "starting\n");
+  const child = fakeChild(outputFile);
+  const probedUrls: string[] = [];
+
+  const web = await startLocalDshWeb(logger, DSH_LAUNCHER, {
+    allocatePort: () => Promise.resolve(45003),
+    spawn: () => child,
+    probe: async (url) => {
+      probedUrls.push(url);
+      if (probedUrls.length === 1) {
+        await Deno.writeTextFile(outputFile, `starting\ndsh web: ${authenticatedUrl}\n`);
+        throw new Error("authentication required");
+      }
+    },
+    delay: () => Promise.resolve(),
+  });
+
+  assertEquals(probedUrls, ["http://127.0.0.1:45003/", authenticatedUrl]);
+  assertEquals(web.url, authenticatedUrl);
+  const stopped = web.stop();
+  child.finish({ success: true, code: 0, signal: null });
+  await stopped;
 });
 
 Deno.test("startLocalDshWeb adds the DSH package only for an actual npx launch", async () => {

@@ -8,14 +8,16 @@ export class ManagedEndpoint {
   readonly exited: Promise<ManagedEndpointExit>;
   #finished = false;
   #stopRequested = false;
+  #url: string;
 
   readonly outputFile: string;
 
   constructor(
-    readonly url: string,
+    url: string,
     private readonly child: ManagedHiddenProcess,
     private readonly delay: (milliseconds: number) => Promise<void>,
   ) {
+    this.#url = url;
     this.outputFile = child.outputFile;
     this.exited = (async () => {
       const status = await child.status;
@@ -25,6 +27,14 @@ export class ManagedEndpoint {
         stopRequested: this.#stopRequested,
       };
     })();
+  }
+
+  get url(): string {
+    return this.#url;
+  }
+
+  protected replaceUrl(url: string): void {
+    this.#url = url;
   }
 
   async stop(): Promise<void> {

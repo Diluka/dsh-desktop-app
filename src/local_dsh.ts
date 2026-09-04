@@ -73,7 +73,11 @@ interface StartLocalDshOptions {
 
 export type LocalDshExit = ManagedEndpointExit;
 
-export class LocalDshWeb extends ManagedEndpoint {}
+export class LocalDshWeb extends ManagedEndpoint {
+  useAuthenticatedUrl(url: string): void {
+    this.replaceUrl(url);
+  }
+}
 
 export function buildDshWebArguments(port: number): string[] {
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -81,6 +85,27 @@ export function buildDshWebArguments(port: number): string[] {
   }
 
   return ["web", "--host", "127.0.0.1", "--port", String(port), "--no-open"];
+}
+
+function authenticatedLocalDshUrl(output: string): string | undefined {
+  let authenticatedUrl: string | undefined;
+
+  for (const line of output.split(/\r?\n/u)) {
+    const prefix = "dsh web:";
+    const trimmed = line.trim();
+    if (!trimmed.startsWith(prefix)) continue;
+    const [value] = trimmed.slice(prefix.length).trimStart().split(/\s+/u, 1);
+    if (!value) continue;
+
+    try {
+      const candidate = new URL(value);
+      if (candidate.searchParams.get("token")) authenticatedUrl = candidate.href;
+    } catch {
+      // Ignore incomplete output while dsh web is starting.
+    }
+  }
+
+  return authenticatedUrl;
 }
 
 export async function probeLocalDshEnvironment(
@@ -287,7 +312,8 @@ async function startLocalDshAttempt(
     throw error;
   }
 
-  const web = new LocalDshWeb(`http://127.0.0.1:${localPort}/`, child, delay);
+  const baseUrl = `http://127.0.0.1:${localPort}/`;
+  const web = new LocalDshWeb(baseUrl, child, delay);
   const exitOutcome = web.exited.then((value) => ({
     kind: "exit" as const,
     value,
@@ -309,6 +335,13 @@ async function startLocalDshAttempt(
 
   const startedAt = Date.now();
   while (true) {
+    if (web.url === baseUrl) {
+      const authenticatedUrl = authenticatedLocalDshUrl(
+        await readProcessOutputTail(web.outputFile),
+      );
+      if (authenticatedUrl) web.useAuthenticatedUrl(authenticatedUrl);
+    }
+
     const outcome = await Promise.race([
       exitOutcome,
       cancelOutcome,
