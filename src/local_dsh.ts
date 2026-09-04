@@ -73,7 +73,11 @@ interface StartLocalDshOptions {
 
 export type LocalDshExit = ManagedEndpointExit;
 
-export class LocalDshWeb extends ManagedEndpoint {}
+export class LocalDshWeb extends ManagedEndpoint {
+  useAuthenticatedUrl(url: string): void {
+    this.replaceUrl(url);
+  }
+}
 
 export function buildDshWebArguments(port: number): string[] {
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -81,6 +85,35 @@ export function buildDshWebArguments(port: number): string[] {
   }
 
   return ["web", "--host", "127.0.0.1", "--port", String(port), "--no-open"];
+}
+
+function authenticatedLocalDshUrl(output: string, expectedUrl: string): string | undefined {
+  const expected = new URL(expectedUrl);
+  let authenticatedUrl: string | undefined;
+
+  for (const line of output.split(/\r?\n/u)) {
+    const match = /^dsh web:\s+(https?:\/\/\S+)/u.exec(line.trim());
+    if (!match) continue;
+
+    let candidate: URL;
+    try {
+      candidate = new URL(match[1]);
+    } catch {
+      continue;
+    }
+    const entries = Array.from(candidate.searchParams.entries());
+    if (
+      candidate.origin !== expected.origin || candidate.pathname !== "/" ||
+      candidate.username !== "" || candidate.password !== "" || candidate.hash !== "" ||
+      entries.length !== 1 || entries[0][0] !== "token" ||
+      !/^[A-Za-z0-9_-]+$/u.test(entries[0][1])
+    ) {
+      continue;
+    }
+    authenticatedUrl = candidate.href;
+  }
+
+  return authenticatedUrl;
 }
 
 export async function probeLocalDshEnvironment(
@@ -287,7 +320,8 @@ async function startLocalDshAttempt(
     throw error;
   }
 
-  const web = new LocalDshWeb(`http://127.0.0.1:${localPort}/`, child, delay);
+  const baseUrl = `http://127.0.0.1:${localPort}/`;
+  const web = new LocalDshWeb(baseUrl, child, delay);
   const exitOutcome = web.exited.then((value) => ({
     kind: "exit" as const,
     value,
@@ -309,6 +343,14 @@ async function startLocalDshAttempt(
 
   const startedAt = Date.now();
   while (true) {
+    if (web.url === baseUrl) {
+      const authenticatedUrl = authenticatedLocalDshUrl(
+        await readProcessOutputTail(web.outputFile),
+        baseUrl,
+      );
+      if (authenticatedUrl) web.useAuthenticatedUrl(authenticatedUrl);
+    }
+
     const outcome = await Promise.race([
       exitOutcome,
       cancelOutcome,
