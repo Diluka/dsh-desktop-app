@@ -1269,11 +1269,6 @@
           var port = document.createElement("span");
           port.textContent = "远端 DSH · :" + profile.remotePort;
           meta.append(target, port);
-          if (profile.dshWebToken) {
-            var token = document.createElement("span");
-            token.textContent = "Token 已保存";
-            meta.appendChild(token);
-          }
           details.appendChild(meta);
 
           var actions = document.createElement("div");
@@ -1310,7 +1305,7 @@
         form.elements.name.value = profile ? profile.name : "";
         form.elements.sshTarget.value = profile ? profile.sshTarget : "";
         form.elements.remotePort.value = profile ? String(profile.remotePort) : "3080";
-        form.elements.dshWebToken.value = profile && profile.dshWebToken ? profile.dshWebToken : "";
+        form.elements.dshWebToken.value = profile ? profile.dshWebToken : "";
         editor.hidden = false;
         window.setTimeout(function () {
           form.elements.sshTarget.focus();

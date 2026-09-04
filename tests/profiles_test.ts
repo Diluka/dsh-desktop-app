@@ -12,6 +12,7 @@ Deno.test("ProfileStore defaults port, validates input, persists and deletes", a
     name: "prod-dsh",
     sshTarget: "prod-dsh",
     remotePort: DEFAULT_REMOTE_PORT,
+    dshWebToken: "",
   });
   assertEquals(JSON.parse(await Deno.readTextFile(filePath)).profiles, [saved]);
 
@@ -56,12 +57,13 @@ Deno.test("ProfileStore.save updates an existing profile id instead of duplicati
     name: "Staging",
     sshTarget: "staging-dsh",
     remotePort: 48080,
+    dshWebToken: "",
   });
   assertEquals(store.list(), [updated]);
   assertEquals(JSON.parse(await Deno.readTextFile(filePath)).profiles, [updated]);
 });
 
-Deno.test("ProfileStore persists and clears an optional DSH Web token", async () => {
+Deno.test("ProfileStore persists the DSH Web token field exactly", async () => {
   const filePath = await tempFile("servers.json");
   const { store } = await ProfileStore.open(filePath, { createId: () => "profile-1" });
 
@@ -82,20 +84,21 @@ Deno.test("ProfileStore persists and clears an optional DSH Web token", async ()
   const reopened = (await ProfileStore.open(filePath)).store;
   assertEquals(reopened.list(), [saved]);
 
-  const cleared = await reopened.save({
+  const emptyToken = await reopened.save({
     id: saved.id,
     name: saved.name,
     sshTarget: saved.sshTarget,
     remotePort: saved.remotePort,
     dshWebToken: "",
   });
-  assertEquals(cleared, {
+  assertEquals(emptyToken, {
     id: "profile-1",
     name: "Production",
     sshTarget: "prod-dsh",
     remotePort: DEFAULT_REMOTE_PORT,
+    dshWebToken: "",
   });
-  assertEquals(JSON.parse(await Deno.readTextFile(filePath)).profiles, [cleared]);
+  assertEquals(JSON.parse(await Deno.readTextFile(filePath)).profiles, [emptyToken]);
 });
 
 Deno.test("ProfileStore persists the selected mode and last used profile", async () => {
@@ -172,6 +175,7 @@ Deno.test("ProfileStore opens version 1 profiles without DSH Web tokens", async 
     name: "Production",
     sshTarget: "prod-dsh",
     remotePort: 3080,
+    dshWebToken: "",
   }]);
 });
 

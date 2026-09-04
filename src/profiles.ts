@@ -10,7 +10,7 @@ export interface ServerProfile {
   readonly name: string;
   readonly sshTarget: string;
   readonly remotePort: number;
-  readonly dshWebToken?: string;
+  readonly dshWebToken: string;
 }
 
 export interface ServerProfileInput {
@@ -131,13 +131,12 @@ export class ProfileStore {
       ? this.#profiles.findIndex((profile) => profile.id === requestedId)
       : -1;
     const sshTarget = validateSshTarget(input.sshTarget);
-    const dshWebToken = input.dshWebToken || undefined;
     const profile: ServerProfile = {
       id: existingIndex >= 0 ? this.#profiles[existingIndex].id : this.createId(),
       name: validateName(input.name, sshTarget),
       sshTarget,
       remotePort: validatePort(input.remotePort),
-      ...(dshWebToken ? { dshWebToken } : {}),
+      dshWebToken: input.dshWebToken ?? "",
     };
 
     if (existingIndex >= 0) {
@@ -192,13 +191,12 @@ function parseProfileFile(raw: string): {
     }
     ids.add(profile.id);
     const sshTarget = validateSshTarget(profile.sshTarget);
-    const dshWebToken = typeof profile.dshWebToken === "string" ? profile.dshWebToken : undefined;
     return {
       id: profile.id,
       name: validateName(profile.name, sshTarget),
       sshTarget,
       remotePort: validateStoredPort(profile.remotePort),
-      ...(dshWebToken ? { dshWebToken } : {}),
+      dshWebToken: (profile.dshWebToken ?? "") as string,
     };
   });
   const mode = record.mode === "local" ? "local" : "remote";

@@ -209,9 +209,9 @@ async function startTunnelAttempt(
   );
 }
 
-function remoteDshWebUrl(localPort: number, token?: string): string {
+function remoteDshWebUrl(localPort: number, token: string): string {
   const url = new URL(`http://127.0.0.1:${localPort}/`);
-  if (token) url.searchParams.set("token", token);
+  url.searchParams.set("token", token);
   return url.href;
 }
 

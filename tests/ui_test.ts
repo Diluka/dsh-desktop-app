@@ -22,7 +22,6 @@ Deno.test("shell html has key elements and parseable inline scripts", () => {
   assertMatch(SHELL_HTML, /npx/u);
   assertMatch(SHELL_HTML, /name="dshWebToken" type="password"/u);
   assertMatch(SHELL_HTML, /dshWebToken: form\.elements\.dshWebToken\.value/u);
-  assertMatch(SHELL_HTML, /Token 已保存/u);
 
   const scripts = [...SHELL_HTML.matchAll(/<script>([\s\S]*?)<\/script>/gu)].map((match) =>
     match[1]
