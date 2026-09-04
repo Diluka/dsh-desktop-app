@@ -626,6 +626,9 @@
       font-size: 12px;
       line-height: 18px;
     }
+    .field small.prompt {
+      color: var(--warning-text);
+    }
     .form-actions {
       display: flex;
       justify-content: flex-end;
@@ -919,6 +922,7 @@
                       placeholder="远端 dsh web 启动时打印的 token" autocomplete="off"
                       spellcheck="false">
                     <small>新版 DSH 需要；旧版或没有 token 可留空，保存后下次自动带上。</small>
+                    <small id="dsh-web-token-prompt" class="prompt" hidden></small>
                   </div>
                 </div>
                 <div class="form-actions">
@@ -1034,6 +1038,7 @@
       var empty = document.getElementById("empty-state");
       var editor = document.getElementById("editor");
       var form = document.getElementById("server-form");
+      var tokenPrompt = document.getElementById("dsh-web-token-prompt");
       var notice = document.getElementById("notice");
       var toast = document.getElementById("toast");
       var connecting = document.getElementById("connecting");
@@ -1306,9 +1311,21 @@
         form.elements.sshTarget.value = profile ? profile.sshTarget : "";
         form.elements.remotePort.value = profile ? String(profile.remotePort) : "3080";
         form.elements.dshWebToken.value = profile ? profile.dshWebToken : "";
+        tokenPrompt.hidden = true;
         editor.hidden = false;
         window.setTimeout(function () {
           form.elements.sshTarget.focus();
+        }, 0);
+      }
+
+      function promptForDshWebToken(profile, message) {
+        openEditor(profile);
+        document.getElementById("editor-title").textContent = "更新 DSH Web token";
+        form.elements.dshWebToken.value = "";
+        tokenPrompt.textContent = message || "远端 DSH Web 要求登录，请输入新的 token 后保存再连接。";
+        tokenPrompt.hidden = false;
+        window.setTimeout(function () {
+          form.elements.dshWebToken.focus();
         }, 0);
       }
 
@@ -1317,6 +1334,7 @@
         form.reset();
         form.elements.remotePort.value = "3080";
         form.elements.dshWebToken.value = "";
+        tokenPrompt.hidden = true;
         editor.hidden = true;
       }
 
@@ -1395,6 +1413,10 @@
           await globalThis.bindings.connectProfile(profile.id);
         } catch (error) {
           connecting.hidden = true;
+          if (requiresDshWebToken(error)) {
+            promptForDshWebToken(profile, errorMessage(error));
+            return;
+          }
           showToast(errorMessage(error));
         }
       }
@@ -1477,6 +1499,12 @@
         toastTimer = window.setTimeout(function () {
           toast.hidden = true;
         }, 5200);
+      }
+
+      function requiresDshWebToken(error) {
+        var message = errorMessage(error);
+        return Boolean(error && error.code === "DSH_LOGIN_REQUIRED") ||
+          message.indexOf("远端 DSH Web 要求登录") !== -1;
       }
 
       function errorMessage(error) {

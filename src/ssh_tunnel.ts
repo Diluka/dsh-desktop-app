@@ -5,7 +5,7 @@ import {
   readProcessOutputTail,
   runHiddenCommand,
 } from "./hidden_process.ts";
-import { allocateLoopbackPort, probeHttp } from "./loopback_http.ts";
+import { allocateLoopbackPort, probeHtmlStatus } from "./loopback_http.ts";
 import { ManagedEndpoint, type ManagedEndpointExit } from "./managed_endpoint.ts";
 import type { ServerProfile } from "./profiles.ts";
 
@@ -25,6 +25,7 @@ export type TunnelErrorCode =
   | "HOST_NOT_FOUND"
   | "CONNECTION_FAILED"
   | "LOCAL_PORT_BUSY"
+  | "DSH_LOGIN_REQUIRED"
   | "DSH_UNAVAILABLE"
   | "SSH_FAILED";
 
@@ -41,7 +42,7 @@ interface StartTunnelOptions {
   readonly startupTimeoutMs?: number;
   readonly allocatePort?: () => Promise<number>;
   readonly spawn: (command: string, args: string[]) => ManagedHiddenProcess;
-  readonly probe?: (url: string) => Promise<void>;
+  readonly probe?: (url: string) => Promise<number>;
   readonly delay?: (milliseconds: number) => Promise<void>;
   readonly now?: () => number;
 }
@@ -125,7 +126,7 @@ async function startTunnelAttempt(
   const command = options.command ?? "ssh";
   const allocatePort = options.allocatePort ?? allocateLoopbackPort;
   const spawn = options.spawn;
-  const probe = options.probe ?? probeHttp;
+  const probe = options.probe ?? probeHtmlStatus;
   const delay = options.delay ?? sleep;
   const now = options.now ?? Date.now;
   const startupTimeoutMs = options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS;
@@ -175,11 +176,25 @@ async function startTunnelAttempt(
     const outcome = await Promise.race([
       exitOutcome,
       probe(tunnel.url).then(
-        () => ({ kind: "ready" as const }),
+        (status) => probeOutcome(status),
         () => ({ kind: "retry" as const }),
       ),
     ]);
     if (outcome.kind === "exit") throw await failureFromExit(outcome.value);
+    if (outcome.kind === "login_required") {
+      await tunnel.stop();
+      logger.warn({
+        event: "ssh.dsh_login_required",
+        profileId: profile.id,
+        childOutputFile: tunnel.outputFile,
+        startupMs: Math.max(0, now() - startedAt),
+        status: outcome.status,
+      }, "Remote DSH Web requires a launch token");
+      throw new TunnelError(
+        "DSH_LOGIN_REQUIRED",
+        "远端 DSH Web 要求登录，请输入新的 token 后重试",
+      );
+    }
     if (outcome.kind === "ready") {
       logger.info({
         event: "ssh.tunnel_ready",
@@ -213,6 +228,15 @@ function remoteDshWebUrl(localPort: number, token: string): string {
   const url = new URL(`http://127.0.0.1:${localPort}/`);
   url.searchParams.set("token", token);
   return url.href;
+}
+
+function probeOutcome(status: number):
+  | { readonly kind: "ready" }
+  | { readonly kind: "login_required"; readonly status: number }
+  | { readonly kind: "retry" } {
+  if (status === 401) return { kind: "login_required", status };
+  if (status >= 200 && status < 400) return { kind: "ready" };
+  return { kind: "retry" };
 }
 
 function classifySshFailure(detail: string, processError?: Error): TunnelError {
