@@ -13,8 +13,6 @@ import POSIX_REMOTE_DSH_TOKEN_PROBE_SCRIPT from "./remote_dsh_token_probe_posix.
 const DEFAULT_PROBE_TIMEOUT_MS = 5_000;
 const SOURCE_MARKER = "__DSH_DESKTOP_TOKEN_PROBE_SOURCE__=";
 
-export { POSIX_REMOTE_DSH_TOKEN_PROBE_SCRIPT };
-
 export interface RemoteDshTokenProbeProgram {
   readonly id: string;
   readonly args: (profile: ServerProfile) => string[];

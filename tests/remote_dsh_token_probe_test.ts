@@ -4,11 +4,13 @@ import {
   buildRemoteTokenProbeSshArguments,
   collectRemoteDshWebTokenCandidates,
   extractRemoteDshWebTokenCandidates,
-  POSIX_REMOTE_DSH_TOKEN_PROBE_SCRIPT,
   posixRemoteDshTokenProbeProgram,
   recoverRemoteDshWebToken,
   type RemoteDshTokenProbeProgram,
 } from "../src/remote_dsh_token_probe.ts";
+import POSIX_REMOTE_DSH_TOKEN_PROBE_SCRIPT from "../src/remote_dsh_token_probe_posix.sh" with {
+  type: "text",
+};
 import { profile } from "./test_helpers.ts";
 
 Deno.test("buildRemoteTokenProbeSshArguments runs a non-interactive remote command", () => {
