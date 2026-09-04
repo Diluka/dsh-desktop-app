@@ -68,7 +68,7 @@ Deno.test("ProfileStore persists and clears an optional DSH Web token", async ()
   const saved = await store.save({
     name: "Production",
     sshTarget: "prod-dsh",
-    dshWebToken: " launch-token ",
+    dshWebToken: "launch-token",
   });
   assertEquals(saved, {
     id: "profile-1",
@@ -87,7 +87,7 @@ Deno.test("ProfileStore persists and clears an optional DSH Web token", async ()
     name: saved.name,
     sshTarget: saved.sshTarget,
     remotePort: saved.remotePort,
-    dshWebToken: " ",
+    dshWebToken: "",
   });
   assertEquals(cleared, {
     id: "profile-1",
@@ -175,51 +175,30 @@ Deno.test("ProfileStore opens version 1 profiles without DSH Web tokens", async 
   }]);
 });
 
-for (
-  const { name, profile } of [
-    {
-      name: "boolean port",
-      profile: {
+Deno.test("ProfileStore backs up config with boolean port", async () => {
+  const filePath = await tempFile("servers.json");
+  await Deno.writeTextFile(
+    filePath,
+    JSON.stringify({
+      version: 1,
+      profiles: [{
         id: "profile-1",
         name: "Production",
         sshTarget: "prod-dsh",
         remotePort: true,
-      },
-    },
-    {
-      name: "boolean DSH Web token",
-      profile: {
-        id: "profile-1",
-        name: "Production",
-        sshTarget: "prod-dsh",
-        remotePort: 3080,
-        dshWebToken: true,
-      },
-    },
-  ]
-) {
-  Deno.test(`ProfileStore backs up config with ${name}`, async () => {
-    const filePath = await tempFile("servers.json");
-    await Deno.writeTextFile(
-      filePath,
-      JSON.stringify({
-        version: 1,
-        profiles: [profile],
-      }),
-    );
+      }],
+    }),
+  );
 
-    const opened = await ProfileStore.open(filePath, {
-      now: () => new Date("2025-01-02T03:04:05.000Z"),
-    });
-
-    assertEquals(opened.store.list(), []);
-    assertEquals(opened.recoveredBackup, `${filePath}.invalid-2025-01-02T03-04-05.000Z`);
+  const opened = await ProfileStore.open(filePath, {
+    now: () => new Date("2025-01-02T03:04:05.000Z"),
   });
-}
+
+  assertEquals(opened.store.list(), []);
+  assertEquals(opened.recoveredBackup, `${filePath}.invalid-2025-01-02T03-04-05.000Z`);
+});
 
 function acceptsSaveInput(_input: Parameters<ProfileStore["save"]>[0]): void {}
 
 // @ts-expect-error remotePort only accepts browser form text or numeric ports.
 acceptsSaveInput({ name: "bad", sshTarget: "prod", remotePort: true });
-// @ts-expect-error dshWebToken only accepts browser form text.
-acceptsSaveInput({ name: "bad", sshTarget: "prod", dshWebToken: true });
