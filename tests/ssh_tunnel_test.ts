@@ -97,6 +97,33 @@ Deno.test("startSshTunnel supports fake child ready path and stop lifecycle", as
   });
 });
 
+Deno.test("startSshTunnel probes and exposes the saved DSH Web token URL", async () => {
+  const { logger } = await memoryLogger();
+  let capturedArgs: string[] = [];
+  const child = fakeChild();
+
+  const tunnel = await startSshTunnel({ ...profile(), dshWebToken: "manual-token" }, logger, {
+    command: "fake-ssh",
+    allocatePort: () => Promise.resolve(41006),
+    spawn: (_command, args) => {
+      capturedArgs = args;
+      return child;
+    },
+    probe: (url) => {
+      assertEquals(url, "http://127.0.0.1:41006/?token=manual-token");
+      return Promise.resolve();
+    },
+    now: () => 1000,
+  });
+
+  assertEquals(tunnel.url, "http://127.0.0.1:41006/?token=manual-token");
+  assertFalse(capturedArgs.includes("manual-token"));
+
+  const stopped = tunnel.stop();
+  child.finish({ success: true, code: 0, signal: null });
+  await stopped;
+});
+
 Deno.test("startSshTunnel retries LOCAL_PORT_BUSY and succeeds on a later attempt", async () => {
   const { logger } = await memoryLogger();
   const busyOutput = await tempFile("busy.log");

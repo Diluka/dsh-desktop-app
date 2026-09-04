@@ -10,6 +10,7 @@ export interface ServerProfile {
   readonly name: string;
   readonly sshTarget: string;
   readonly remotePort: number;
+  readonly dshWebToken?: string;
 }
 
 export interface ServerProfileInput {
@@ -17,6 +18,7 @@ export interface ServerProfileInput {
   readonly name?: string | null;
   readonly sshTarget: string;
   readonly remotePort?: string | number | null;
+  readonly dshWebToken?: string | null;
 }
 
 interface ProfileFile {
@@ -129,11 +131,13 @@ export class ProfileStore {
       ? this.#profiles.findIndex((profile) => profile.id === requestedId)
       : -1;
     const sshTarget = validateSshTarget(input.sshTarget);
+    const dshWebToken = validateDshWebToken(input.dshWebToken);
     const profile: ServerProfile = {
       id: existingIndex >= 0 ? this.#profiles[existingIndex].id : this.createId(),
       name: validateName(input.name, sshTarget),
       sshTarget,
       remotePort: validatePort(input.remotePort),
+      ...(dshWebToken ? { dshWebToken } : {}),
     };
 
     if (existingIndex >= 0) {
@@ -188,11 +192,13 @@ function parseProfileFile(raw: string): {
     }
     ids.add(profile.id);
     const sshTarget = validateSshTarget(profile.sshTarget);
+    const dshWebToken = validateStoredDshWebToken(profile.dshWebToken);
     return {
       id: profile.id,
       name: validateName(profile.name, sshTarget),
       sshTarget,
       remotePort: validateStoredPort(profile.remotePort),
+      ...(dshWebToken ? { dshWebToken } : {}),
     };
   });
   const mode = record.mode === "local" ? "local" : "remote";
@@ -240,6 +246,26 @@ function hasControlCharacter(value: string): boolean {
     const code = character.charCodeAt(0);
     return code < 32 || code === 127;
   });
+}
+
+function validateDshWebToken(value: string | null | undefined): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string") {
+    throw new ProfileValidationError("DSH Web token 必须是文本");
+  }
+  const token = value.trim();
+  if (!token) return undefined;
+  if (hasControlCharacter(token)) {
+    throw new ProfileValidationError("DSH Web token 不能包含控制字符");
+  }
+  return token;
+}
+
+function validateStoredDshWebToken(value: unknown): string | undefined {
+  if (typeof value === "string" || value === null || value === undefined) {
+    return validateDshWebToken(value);
+  }
+  throw new ProfileValidationError("DSH Web token 必须是文本");
 }
 
 function validatePort(value: string | number | null | undefined): number {

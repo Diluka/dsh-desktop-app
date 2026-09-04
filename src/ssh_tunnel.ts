@@ -149,7 +149,7 @@ async function startTunnelAttempt(
     throw error;
   }
 
-  const tunnel = new SshTunnel(`http://127.0.0.1:${localPort}/`, child, delay);
+  const tunnel = new SshTunnel(remoteDshWebUrl(localPort, profile.dshWebToken), child, delay);
   const exitOutcome = tunnel.exited.then((value) => ({
     kind: "exit" as const,
     value,
@@ -207,6 +207,12 @@ async function startTunnelAttempt(
     "DSH_UNAVAILABLE",
     "SSH 已连接，但远端 DSH Web 未在限定时间内响应；请检查远端端口配置",
   );
+}
+
+function remoteDshWebUrl(localPort: number, token?: string): string {
+  const url = new URL(`http://127.0.0.1:${localPort}/`);
+  if (token) url.searchParams.set("token", token);
+  return url.href;
 }
 
 function classifySshFailure(detail: string, processError?: Error): TunnelError {

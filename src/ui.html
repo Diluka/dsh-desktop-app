@@ -588,7 +588,7 @@
       grid-template-columns: 1fr 0.55fr;
       gap: 18px;
     }
-    .field:first-child {
+    .field.full {
       grid-column: 1 / -1;
     }
     .field label {
@@ -787,7 +787,7 @@
       .form-grid {
         grid-template-columns: 1fr;
       }
-      .field:first-child {
+      .field.full {
         grid-column: auto;
       }
       .form-actions {
@@ -895,7 +895,7 @@
               </div>
               <form id="server-form">
                 <div class="form-grid">
-                  <div class="field">
+                  <div class="field full">
                     <label for="server-name">显示名称</label>
                     <input id="server-name" name="name" maxlength="80" placeholder="生产环境"
                       autocomplete="off">
@@ -912,6 +912,13 @@
                     <input id="remote-port" name="remotePort" type="number" required min="1"
                       max="65535" value="3080" inputmode="numeric">
                     <small>默认端口为 <code>3080</code>。</small>
+                  </div>
+                  <div class="field full">
+                    <label for="dsh-web-token">DSH Web token（可选）</label>
+                    <input id="dsh-web-token" name="dshWebToken" type="password"
+                      placeholder="远端 dsh web 启动时打印的 token" autocomplete="off"
+                      spellcheck="false">
+                    <small>新版 DSH 需要；旧版或没有 token 可留空，保存后下次自动带上。</small>
                   </div>
                 </div>
                 <div class="form-actions">
@@ -1262,6 +1269,11 @@
           var port = document.createElement("span");
           port.textContent = "远端 DSH · :" + profile.remotePort;
           meta.append(target, port);
+          if (profile.dshWebToken) {
+            var token = document.createElement("span");
+            token.textContent = "Token 已保存";
+            meta.appendChild(token);
+          }
           details.appendChild(meta);
 
           var actions = document.createElement("div");
@@ -1298,6 +1310,7 @@
         form.elements.name.value = profile ? profile.name : "";
         form.elements.sshTarget.value = profile ? profile.sshTarget : "";
         form.elements.remotePort.value = profile ? String(profile.remotePort) : "3080";
+        form.elements.dshWebToken.value = profile && profile.dshWebToken ? profile.dshWebToken : "";
         editor.hidden = false;
         window.setTimeout(function () {
           form.elements.sshTarget.focus();
@@ -1308,6 +1321,7 @@
         state.editingId = null;
         form.reset();
         form.elements.remotePort.value = "3080";
+        form.elements.dshWebToken.value = "";
         editor.hidden = true;
       }
 
@@ -1333,6 +1347,7 @@
             name: form.elements.name.value,
             sshTarget: form.elements.sshTarget.value,
             remotePort: Number(form.elements.remotePort.value),
+            dshWebToken: form.elements.dshWebToken.value,
           });
           var data = await globalThis.bindings.bootstrap();
           applyBootstrapData(data);

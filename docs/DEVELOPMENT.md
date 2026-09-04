@@ -67,6 +67,10 @@ ssh <Host别名> true
 Windows 的 OpenSSH 配置通常位于 `%USERPROFILE%\.ssh\config`，Linux 和 macOS 位于
 `~/.ssh/config`。远端 DSH Web 默认端口是 `3080`。
 
+新版 DSH Web 可能要求启动时打印的 `token`。远程服务器配置可手动保存一个可选 token；存在时，应用在
+SSH 隧道的本地回环 URL 上追加 `token` query，并用同一个 URL 完成 readiness probe
+和窗口导航。留空时继续访问裸 URL，用于兼容旧版 DSH Web。
+
 ## 配置与偏好
 
 服务器配置、选择的连接模式和最近使用的远程项目保存在同一个 `servers.json`：
@@ -77,7 +81,8 @@ Windows 的 OpenSSH 配置通常位于 `%USERPROFILE%\.ssh\config`，Linux 和 m
 | Windows | `%APPDATA%\dsh-desktop\servers.json`                                                         |
 | macOS   | `~/Library/Application Support/dsh-desktop/servers.json`                                     |
 
-配置文件包含 SSH Host、显示名称、远端 DSH Web 端口、连接模式和最近使用项目 ID。
+配置文件包含 SSH Host、显示名称、远端 DSH Web 端口、可选 DSH Web token、连接模式和最近使用项目 ID。
+远程 token 会以明文保存，只应填写当前用户可访问的远端 DSH Web 启动 token。
 
 损坏的 JSON 会在启动时重命名为带时间戳的 `.invalid-*` 备份，应用随后使用空配置启动。
 
