@@ -10,6 +10,7 @@ export interface ServerProfile {
   readonly name: string;
   readonly sshTarget: string;
   readonly remotePort: number;
+  readonly dshWebToken: string;
 }
 
 export interface ServerProfileInput {
@@ -17,6 +18,7 @@ export interface ServerProfileInput {
   readonly name?: string | null;
   readonly sshTarget: string;
   readonly remotePort?: string | number | null;
+  readonly dshWebToken?: string | null;
 }
 
 interface ProfileFile {
@@ -134,6 +136,7 @@ export class ProfileStore {
       name: validateName(input.name, sshTarget),
       sshTarget,
       remotePort: validatePort(input.remotePort),
+      dshWebToken: input.dshWebToken ?? "",
     };
 
     if (existingIndex >= 0) {
@@ -193,6 +196,7 @@ function parseProfileFile(raw: string): {
       name: validateName(profile.name, sshTarget),
       sshTarget,
       remotePort: validateStoredPort(profile.remotePort),
+      dshWebToken: (profile.dshWebToken ?? "") as string,
     };
   });
   const mode = record.mode === "local" ? "local" : "remote";

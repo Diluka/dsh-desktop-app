@@ -8,6 +8,7 @@ Deno.test("buildSshArguments creates non-interactive loopback forwarding without
     name: "Production",
     sshTarget: "prod-dsh",
     remotePort: 48080,
+    dshWebToken: "",
   }, 39001);
 
   assert(args.includes("-N"));
@@ -75,13 +76,13 @@ Deno.test("startSshTunnel supports fake child ready path and stop lifecycle", as
       return child;
     },
     probe: (url) => {
-      assertEquals(url, "http://127.0.0.1:41000/");
+      assertEquals(url, "http://127.0.0.1:41000/?token=");
       return Promise.resolve();
     },
     now: () => 1000,
   });
 
-  assertEquals(tunnel.url, "http://127.0.0.1:41000/");
+  assertEquals(tunnel.url, "http://127.0.0.1:41000/?token=");
   assertEquals(capturedCommand, "fake-ssh");
   assertEquals(capturedArgs.at(-1), "prod-dsh");
 
@@ -95,6 +96,33 @@ Deno.test("startSshTunnel supports fake child ready path and stop lifecycle", as
     signal: null,
     stopRequested: true,
   });
+});
+
+Deno.test("startSshTunnel probes and exposes the saved DSH Web token URL", async () => {
+  const { logger } = await memoryLogger();
+  let capturedArgs: string[] = [];
+  const child = fakeChild();
+
+  const tunnel = await startSshTunnel({ ...profile(), dshWebToken: "manual-token" }, logger, {
+    command: "fake-ssh",
+    allocatePort: () => Promise.resolve(41006),
+    spawn: (_command, args) => {
+      capturedArgs = args;
+      return child;
+    },
+    probe: (url) => {
+      assertEquals(url, "http://127.0.0.1:41006/?token=manual-token");
+      return Promise.resolve();
+    },
+    now: () => 1000,
+  });
+
+  assertEquals(tunnel.url, "http://127.0.0.1:41006/?token=manual-token");
+  assertFalse(capturedArgs.includes("manual-token"));
+
+  const stopped = tunnel.stop();
+  child.finish({ success: true, code: 0, signal: null });
+  await stopped;
 });
 
 Deno.test("startSshTunnel retries LOCAL_PORT_BUSY and succeeds on a later attempt", async () => {
@@ -124,7 +152,7 @@ Deno.test("startSshTunnel retries LOCAL_PORT_BUSY and succeeds on a later attemp
     startupTimeoutMs: 5000,
   });
 
-  assertEquals(tunnel.url, "http://127.0.0.1:41002/");
+  assertEquals(tunnel.url, "http://127.0.0.1:41002/?token=");
   assertEquals(spawnCount, 2);
   assertEquals(allocatedPorts, [41001, 41002]);
   const stopped = tunnel.stop();

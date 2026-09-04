@@ -13,7 +13,7 @@ export async function tempFile(name: string) {
 }
 
 export function profile() {
-  return { id: "p1", name: "Production", sshTarget: "prod-dsh", remotePort: 3080 };
+  return { id: "p1", name: "Production", sshTarget: "prod-dsh", remotePort: 3080, dshWebToken: "" };
 }
 
 export async function memoryLogger() {

@@ -12,6 +12,7 @@ Deno.test("ProfileStore defaults port, validates input, persists and deletes", a
     name: "prod-dsh",
     sshTarget: "prod-dsh",
     remotePort: DEFAULT_REMOTE_PORT,
+    dshWebToken: "",
   });
   assertEquals(JSON.parse(await Deno.readTextFile(filePath)).profiles, [saved]);
 
@@ -56,9 +57,48 @@ Deno.test("ProfileStore.save updates an existing profile id instead of duplicati
     name: "Staging",
     sshTarget: "staging-dsh",
     remotePort: 48080,
+    dshWebToken: "",
   });
   assertEquals(store.list(), [updated]);
   assertEquals(JSON.parse(await Deno.readTextFile(filePath)).profiles, [updated]);
+});
+
+Deno.test("ProfileStore persists the DSH Web token field exactly", async () => {
+  const filePath = await tempFile("servers.json");
+  const { store } = await ProfileStore.open(filePath, { createId: () => "profile-1" });
+
+  const saved = await store.save({
+    name: "Production",
+    sshTarget: "prod-dsh",
+    dshWebToken: "launch-token",
+  });
+  assertEquals(saved, {
+    id: "profile-1",
+    name: "Production",
+    sshTarget: "prod-dsh",
+    remotePort: DEFAULT_REMOTE_PORT,
+    dshWebToken: "launch-token",
+  });
+  assertEquals(JSON.parse(await Deno.readTextFile(filePath)).profiles, [saved]);
+
+  const reopened = (await ProfileStore.open(filePath)).store;
+  assertEquals(reopened.list(), [saved]);
+
+  const emptyToken = await reopened.save({
+    id: saved.id,
+    name: saved.name,
+    sshTarget: saved.sshTarget,
+    remotePort: saved.remotePort,
+    dshWebToken: "",
+  });
+  assertEquals(emptyToken, {
+    id: "profile-1",
+    name: "Production",
+    sshTarget: "prod-dsh",
+    remotePort: DEFAULT_REMOTE_PORT,
+    dshWebToken: "",
+  });
+  assertEquals(JSON.parse(await Deno.readTextFile(filePath)).profiles, [emptyToken]);
 });
 
 Deno.test("ProfileStore persists the selected mode and last used profile", async () => {
@@ -110,6 +150,33 @@ Deno.test("ProfileStore backs up corrupt config and recovers empty store", async
   assertEquals(opened.recoveredBackup, `${filePath}.invalid-2025-01-02T03-04-05.000Z`);
   assertEquals(await Deno.readTextFile(opened.recoveredBackup!), "not json");
   await assertRejects(() => Deno.readTextFile(filePath), Deno.errors.NotFound);
+});
+
+Deno.test("ProfileStore opens version 1 profiles without DSH Web tokens", async () => {
+  const filePath = await tempFile("servers.json");
+  await Deno.writeTextFile(
+    filePath,
+    JSON.stringify({
+      version: 1,
+      mode: "remote",
+      profiles: [{
+        id: "profile-1",
+        name: "Production",
+        sshTarget: "prod-dsh",
+        remotePort: 3080,
+      }],
+    }),
+  );
+
+  const { store, recoveredBackup } = await ProfileStore.open(filePath);
+  assertEquals(recoveredBackup, undefined);
+  assertEquals(store.list(), [{
+    id: "profile-1",
+    name: "Production",
+    sshTarget: "prod-dsh",
+    remotePort: 3080,
+    dshWebToken: "",
+  }]);
 });
 
 Deno.test("ProfileStore backs up config with boolean port", async () => {

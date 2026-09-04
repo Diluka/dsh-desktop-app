@@ -75,8 +75,10 @@ Host my-dsh
 ssh my-dsh true
 ```
 
-随后在 DSH Desktop 中添加 `my-dsh`，填写远端 DSH Web 端口（默认 `3080`）并连接。应用使用密钥或
-`ssh-agent`，不提供 SSH 密码和私钥 passphrase 的交互输入。
+随后在 DSH Desktop 中添加 `my-dsh`，填写远端 DSH Web 端口（默认 `3080`）并连接。如果远端新版 DSH Web
+启动时打印了 `token`，可把 token 填入服务器配置并保存；旧版 DSH 或没有 token 时留空即可。
+应用连接时始终把保存的字段作为 `token` query 参数带到隧道 URL 上。应用使用密钥或 `ssh-agent`，
+不提供 SSH 密码和私钥 passphrase 的交互输入。
 
 ## 开发
 

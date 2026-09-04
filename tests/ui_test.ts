@@ -9,6 +9,7 @@ Deno.test("shell html has key elements and parseable inline scripts", () => {
       "cancel-local-start",
       "server-form",
       "remote-port",
+      "dsh-web-token",
       "server-list",
       "toast",
       "update-banner",
@@ -19,6 +20,8 @@ Deno.test("shell html has key elements and parseable inline scripts", () => {
     assertMatch(SHELL_HTML, new RegExp(`id="${id}"`, "u"));
   }
   assertMatch(SHELL_HTML, /npx/u);
+  assertMatch(SHELL_HTML, /name="dshWebToken" type="password"/u);
+  assertMatch(SHELL_HTML, /dshWebToken: form\.elements\.dshWebToken\.value/u);
 
   const scripts = [...SHELL_HTML.matchAll(/<script>([\s\S]*?)<\/script>/gu)].map((match) =>
     match[1]
