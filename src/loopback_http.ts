@@ -8,23 +8,30 @@ export function allocateLoopbackPort(): Promise<number> {
   }
 }
 
-export async function probeHttp(url: string): Promise<void> {
-  const status = await probeHtmlStatus(url);
-  if (status < 200 || status >= 400) {
-    throw new Error(`HTTP probe failed with status ${status}`);
-  }
+interface ProbeHttpOptions {
+  readonly accept?: string;
+  readonly validateStatus?: (status: number) => boolean;
 }
 
-export async function probeHtmlStatus(url: string): Promise<number> {
+export async function probeHttp(url: string, options: ProbeHttpOptions = {}): Promise<number> {
   const response = await fetch(url, {
     method: "GET",
-    headers: { accept: "text/html" },
+    ...(options.accept ? { headers: { accept: options.accept } } : {}),
     redirect: "manual",
     signal: AbortSignal.timeout(1_500),
   });
   try {
-    return response.status;
+    const status = response.status;
+    const validateStatus = options.validateStatus ?? successfulOrRedirectStatus;
+    if (!validateStatus(status)) {
+      throw new Error(`HTTP probe failed with status ${status}`);
+    }
+    return status;
   } finally {
     await response.body?.cancel();
   }
+}
+
+function successfulOrRedirectStatus(status: number): boolean {
+  return status >= 200 && status < 400;
 }

@@ -5,7 +5,7 @@ import {
   readProcessOutputTail,
   runHiddenCommand,
 } from "./hidden_process.ts";
-import { allocateLoopbackPort, probeHtmlStatus } from "./loopback_http.ts";
+import { allocateLoopbackPort, probeHttp } from "./loopback_http.ts";
 import { ManagedEndpoint, type ManagedEndpointExit } from "./managed_endpoint.ts";
 import type { ServerProfile } from "./profiles.ts";
 
@@ -126,7 +126,11 @@ async function startTunnelAttempt(
   const command = options.command ?? "ssh";
   const allocatePort = options.allocatePort ?? allocateLoopbackPort;
   const spawn = options.spawn;
-  const probe = options.probe ?? probeHtmlStatus;
+  const probe = options.probe ?? ((url) =>
+    probeHttp(url, {
+      accept: "text/html",
+      validateStatus: () => true,
+    }));
   const delay = options.delay ?? sleep;
   const now = options.now ?? Date.now;
   const startupTimeoutMs = options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS;
