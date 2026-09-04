@@ -68,8 +68,10 @@ Windows 的 OpenSSH 配置通常位于 `%USERPROFILE%\.ssh\config`，Linux 和 m
 `~/.ssh/config`。远端 DSH Web 默认端口是 `3080`。
 
 新版 DSH Web 可能要求启动时打印的 `token`。远程服务器配置可手动保存一个 token 字段；连接时，
-应用始终把该字段作为 `token` query 参数追加到 SSH 隧道的本地回环 URL 上，并用同一个 URL 完成
-readiness probe 和窗口导航。留空时会追加空的 `token` 参数，用于兼容没有 token 的旧版 DSH Web。
+应用始终把该字段作为 `token` query 参数追加到 SSH 隧道的本地回环 URL 上，并用同一个 URL 发起 HTML
+readiness probe 和窗口导航。探针返回 `2xx` 或 `3xx` 时视为可用；返回 `401` 时立即停止隧道，
+回到服务器编辑表单并提示输入新的 token。留空时会追加空的 `token` 参数，用于兼容没有 token 的旧版 DSH
+Web。
 
 ## 配置与偏好
 
@@ -114,6 +116,7 @@ token、secret、Authorization、Bearer 凭据和私钥标记进行脱敏，并�
 | npx 长时间等待       | 对应 `.child.log` 的下载输出；可以先终止，再在终端验证 npx    |
 | OpenSSH 不可用       | `ssh -V`；Windows 可选功能或 Linux 的 `openssh-client` 包     |
 | 主机不存在或认证失败 | `ssh <Host别名> true`、用户 OpenSSH 配置、密钥和 `ssh-agent`  |
+| 提示输入新的 token   | 远端 `dsh web` 启动输出中的最新 token，并保存到对应服务器配置 |
 | DSH Web 无法就绪     | 远端监听端口、远端回环地址和服务器配置中的 DSH Web 端口       |
 | 连接后意外返回选择页 | JSONL 中的退出事件及其 `childOutputFile`                      |
 

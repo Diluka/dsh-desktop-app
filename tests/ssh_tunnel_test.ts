@@ -77,7 +77,7 @@ Deno.test("startSshTunnel supports fake child ready path and stop lifecycle", as
     },
     probe: (url) => {
       assertEquals(url, "http://127.0.0.1:41000/?token=");
-      return Promise.resolve();
+      return Promise.resolve(200);
     },
     now: () => 1000,
   });
@@ -112,7 +112,7 @@ Deno.test("startSshTunnel probes and exposes the saved DSH Web token URL", async
     },
     probe: (url) => {
       assertEquals(url, "http://127.0.0.1:41006/?token=manual-token");
-      return Promise.resolve();
+      return Promise.resolve(200);
     },
     now: () => 1000,
   });
@@ -123,6 +123,36 @@ Deno.test("startSshTunnel probes and exposes the saved DSH Web token URL", async
   const stopped = tunnel.stop();
   child.finish({ success: true, code: 0, signal: null });
   await stopped;
+});
+
+Deno.test("startSshTunnel asks for a new token when remote DSH Web returns 401", async () => {
+  const { logger } = await memoryLogger();
+  const child = fakeChild();
+  const originalKill = child.kill.bind(child);
+  child.kill = (signal?: Deno.Signal) => {
+    originalKill(signal);
+    if (signal === "SIGTERM") child.finish({ success: false, code: 143, signal: "SIGTERM" });
+  };
+
+  const error = await assertRejects(
+    () =>
+      startSshTunnel(profile(), logger, {
+        command: "fake-ssh",
+        allocatePort: () => Promise.resolve(41007),
+        spawn: () => child,
+        probe: (url) => {
+          assertEquals(url, "http://127.0.0.1:41007/?token=");
+          return Promise.resolve(401);
+        },
+        delay: () => Promise.resolve(),
+        now: () => 1000,
+      }),
+    TunnelError,
+  );
+
+  assertEquals(error.code, "DSH_LOGIN_REQUIRED");
+  assertEquals(child.kills, ["SIGTERM"]);
+  await child.status;
 });
 
 Deno.test("startSshTunnel retries LOCAL_PORT_BUSY and succeeds on a later attempt", async () => {
@@ -146,7 +176,7 @@ Deno.test("startSshTunnel retries LOCAL_PORT_BUSY and succeeds on a later attemp
       }
       return ready;
     },
-    probe: () => spawnCount === 1 ? Promise.reject(new Error("not ready")) : Promise.resolve(),
+    probe: () => spawnCount === 1 ? Promise.reject(new Error("not ready")) : Promise.resolve(200),
     delay: () => Promise.resolve(),
     now: tickingClock(0, 1000),
     startupTimeoutMs: 5000,
