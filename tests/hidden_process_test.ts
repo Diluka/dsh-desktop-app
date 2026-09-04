@@ -104,27 +104,22 @@ Deno.test("spawnHiddenProcess kill stops a running child", async () => {
 Deno.test("spawnHiddenProcess kill terminates the process tree on Windows", async () => {
   if (Deno.build.os !== "windows") return;
   const directory = await Deno.makeTempDir();
-  const pidFile = join(directory, "child.pid");
   // A .ps1 shim runs a child synchronously, so the spawned child is PowerShell and
   // its descendant process must not survive kill.
   const script = join(directory, "long-running.ps1");
   const denoPath = Deno.execPath().replaceAll("\\", "/").replaceAll("'", "''");
-  const jsPath = pidFile.replaceAll("\\", "/").replaceAll("'", "\\'");
   await Deno.writeTextFile(
     script,
     [
-      `& '${denoPath}' eval --allow-write='${jsPath}' "await Deno.writeTextFile('${jsPath}', String(Deno.pid)); setInterval(() => {}, 1000)"`,
+      `& '${denoPath}' eval "console.log('DESCENDANT_PID=' + Deno.pid); setInterval(() => {}, 1000)"`,
     ].join("\n"),
   );
 
   const child = spawnHiddenProcess(script, [], directory);
   let childPid = 0;
   for (let i = 0; i < 200 && childPid === 0; i++) {
-    try {
-      childPid = Number((await Deno.readTextFile(pidFile)).trim());
-    } catch {
-      // The descendant process has not written its PID yet.
-    }
+    const output = await readProcessOutputTail(child.outputFile);
+    childPid = Number(/DESCENDANT_PID=(\d+)/u.exec(output)?.[1] ?? 0);
     if (childPid === 0) await new Promise((resolve) => setTimeout(resolve, 25));
   }
   if (childPid === 0) {
