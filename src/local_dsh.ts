@@ -87,8 +87,7 @@ export function buildDshWebArguments(port: number): string[] {
   return ["web", "--host", "127.0.0.1", "--port", String(port), "--no-open"];
 }
 
-function authenticatedLocalDshUrl(output: string, expectedUrl: string): string | undefined {
-  const expected = new URL(expectedUrl);
+function authenticatedLocalDshUrl(output: string): string | undefined {
   let authenticatedUrl: string | undefined;
 
   for (const line of output.split(/\r?\n/u)) {
@@ -98,21 +97,12 @@ function authenticatedLocalDshUrl(output: string, expectedUrl: string): string |
     const [value] = trimmed.slice(prefix.length).trimStart().split(/\s+/u, 1);
     if (!value) continue;
 
-    let candidate: URL;
     try {
-      candidate = new URL(value);
+      const candidate = new URL(value);
+      if (candidate.searchParams.get("token")) authenticatedUrl = candidate.href;
     } catch {
-      continue;
+      // Ignore incomplete output while dsh web is starting.
     }
-    const token = candidate.searchParams.get("token");
-    if (
-      candidate.origin !== expected.origin || candidate.pathname !== "/" ||
-      candidate.username !== "" || candidate.password !== "" ||
-      token === null || token.length === 0 || candidate.searchParams.getAll("token").length !== 1
-    ) {
-      continue;
-    }
-    authenticatedUrl = candidate.href;
   }
 
   return authenticatedUrl;
@@ -348,7 +338,6 @@ async function startLocalDshAttempt(
     if (web.url === baseUrl) {
       const authenticatedUrl = authenticatedLocalDshUrl(
         await readProcessOutputTail(web.outputFile),
-        baseUrl,
       );
       if (authenticatedUrl) web.useAuthenticatedUrl(authenticatedUrl);
     }

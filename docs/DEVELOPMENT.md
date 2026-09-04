@@ -95,8 +95,8 @@ Windows 的 OpenSSH 配置通常位于 `%USERPROFILE%\.ssh\config`，Linux 和 m
 token、secret、Authorization、Bearer 凭据和私钥标记进行脱敏，并限制错误文本长度。
 
 每个 `dsh`、npx 或 OpenSSH 子进程由操作系统直接把 stdout/stderr 写入独立 `.child.log`。本地 DSH
-启动期间，应用读取文件末尾最多 16 KiB，并只接受与本次回环端口同源的 `dsh web: ...?token=...` 认证
-URL；启动失败或意外退出后也会读取相同范围，用于错误分类和界面提示。
+启动期间，应用读取文件末尾最多 16 KiB，并使用 `dsh web:` 打印的、包含 `token` 参数的认证 URL；启动
+失败或意外退出后也会读取相同范围，用于错误分类和界面提示。
 
 `.child.log` 是未经脱敏的原始输出，包含 DSH 启动 token；外发前需要检查 SSH Host、用户名、本地路径和
 其他敏感内容。POSIX 平台创建日志文件时使用 `0600`；Windows 文件继承日志目录的访问控制列表。

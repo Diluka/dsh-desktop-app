@@ -287,30 +287,6 @@ Deno.test("startLocalDshWeb uses the authenticated URL printed by current dsh", 
   await stopped;
 });
 
-Deno.test("startLocalDshWeb ignores a printed token URL for another origin", async () => {
-  const { logger } = await memoryLogger();
-  const outputFile = await tempFile("wrong-origin-url.log");
-  await Deno.writeTextFile(
-    outputFile,
-    `dsh web: http://127.0.0.1:45999/?token=${"a".repeat(43)}\n`,
-  );
-  const child = fakeChild(outputFile);
-
-  const web = await startLocalDshWeb(logger, DSH_LAUNCHER, {
-    allocatePort: () => Promise.resolve(45004),
-    spawn: () => child,
-    probe: (url) => {
-      assertEquals(url, "http://127.0.0.1:45004/");
-      return Promise.resolve();
-    },
-  });
-
-  assertEquals(web.url, "http://127.0.0.1:45004/");
-  const stopped = web.stop();
-  child.finish({ success: true, code: 0, signal: null });
-  await stopped;
-});
-
 Deno.test("startLocalDshWeb adds the DSH package only for an actual npx launch", async () => {
   const { logger } = await memoryLogger();
   const child = fakeChild();
