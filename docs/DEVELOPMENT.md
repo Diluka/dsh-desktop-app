@@ -114,9 +114,10 @@ token、secret、Authorization、Bearer 凭据和私钥标记进行脱敏，并�
 shell 脚本，不在远端写临时文件。当前默认日志来源包括当前用户可访问的 tmux pane scrollback、近期
 `journalctl --user`、近期系统 `journalctl`，以及 `/proc/<pid>/fd/{1,2}` 指向普通文件且命令行类似
 `dsh web` 的 stdout/stderr 日志。探针只提取 `dsh web:` 打印 URL 中的 `token` 参数；不记录 token
-值，也不校验 token 格式。代码按 `RemoteDshTokenProbeProgram` 与 `RemoteDshTokenProbeSource` 分层：
-未来新增 `screen`、Docker、Kubernetes 等 POSIX 日志来源时增加 source；新增 Windows remote 或其他远端
-执行环境时增加 program。
+值，也不校验 token 格式。默认 POSIX 探针维护在 `src/remote_dsh_token_probe_posix.sh` 并以 text
+import 进入 TypeScript；未来新增 `screen`、Docker、Kubernetes 等 POSIX
+日志来源时直接扩展该脚本。新增 Windows remote 或其他远端执行环境时增加
+`RemoteDshTokenProbeProgram`。
 
 常见排障入口：
 
@@ -212,23 +213,24 @@ Release 和同名 tag，并重新创建同名 Release。发布任务会确认运
 ## 源码结构
 
 ```text
-app.ts                    桌面生命周期、bindings 与安全导航
-main.ts                   CEF 入口
-main_webview.ts           WebView2 入口
-assets/                   SVG、PNG、Windows ICO 与 macOS ICNS
-scripts/                  Windows 打包与 toolchain 环境验证
-src/app_paths.ts          跨平台配置和日志路径
-src/dsh_web.ts           DSH Web URL 与启动 token 解析工具
-src/hidden_process.ts     隐藏子进程与独立输出文件
-src/local_dsh.ts          本地 DSH/npx 探测与启动
-src/managed_endpoint.ts   子进程停止与退出生命周期
-src/profiles.ts           服务器配置和偏好持久化
-src/remote_dsh_token_probe.ts 远端 DSH Web token 探针与验证
-src/ssh_tunnel.ts         OpenSSH 隧道与错误分类
-src/ui.html               本地选择页的结构、样式和交互
-src/ui.ts                 本地选择页 HTTP 响应与安全头
-tests/                    无头单元测试
-docs/                     开发、发布和 GUI 验证文档
+app.ts                         桌面生命周期、bindings 与安全导航
+main.ts                        CEF 入口
+main_webview.ts                WebView2 入口
+assets/                        SVG、PNG、Windows ICO 与 macOS ICNS
+scripts/                       Windows 打包与 toolchain 环境验证
+src/app_paths.ts               跨平台配置和日志路径
+src/dsh_web.ts                 DSH Web URL 与启动 token 解析工具
+src/hidden_process.ts          隐藏子进程与独立输出文件
+src/local_dsh.ts               本地 DSH/npx 探测与启动
+src/managed_endpoint.ts        子进程停止与退出生命周期
+src/profiles.ts                服务器配置和偏好持久化
+src/remote_dsh_token_probe.ts  远端 DSH Web token 探针与验证
+src/remote_dsh_token_probe_posix.sh  POSIX 远端日志探针脚本
+src/ssh_tunnel.ts              OpenSSH 隧道与错误分类
+src/ui.html                    本地选择页的结构、样式和交互
+src/ui.ts                      本地选择页 HTTP 响应与安全头
+tests/                         无头单元测试
+docs/                          开发、发布和 GUI 验证文档
 ```
 
 ## 当前限制

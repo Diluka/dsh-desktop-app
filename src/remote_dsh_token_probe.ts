@@ -6,14 +6,14 @@ import {
 import { type HiddenCommandOptions, runHiddenCommand } from "./hidden_process.ts";
 import { probeHttp } from "./loopback_http.ts";
 import type { ServerProfile } from "./profiles.ts";
+import POSIX_REMOTE_DSH_TOKEN_PROBE_SCRIPT from "./remote_dsh_token_probe_posix.sh" with {
+  type: "text",
+};
 
 const DEFAULT_PROBE_TIMEOUT_MS = 5_000;
 const SOURCE_MARKER = "__DSH_DESKTOP_TOKEN_PROBE_SOURCE__=";
 
-export interface RemoteDshTokenProbeSource {
-  readonly id: string;
-  readonly script: string;
-}
+export { POSIX_REMOTE_DSH_TOKEN_PROBE_SCRIPT };
 
 export interface RemoteDshTokenProbeProgram {
   readonly id: string;
@@ -48,70 +48,13 @@ export interface RecoverRemoteDshWebTokenOptions extends RemoteDshTokenProbeOpti
 
 export type RecoveredRemoteDshWebToken = RemoteDshWebTokenCandidate;
 
-export const POSIX_REMOTE_DSH_TOKEN_PROBE_SOURCES: readonly RemoteDshTokenProbeSource[] = [
-  {
-    id: "tmux",
-    script: `
-if command -v tmux >/dev/null 2>&1; then
-  tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_index}' 2>/dev/null |
-  while IFS= read -r pane; do
-    tmux capture-pane -p -S -2000 -t "$pane" 2>/dev/null
-  done
-fi
-`,
-  },
-  {
-    id: "journalctl-user",
-    script: `
-if command -v journalctl >/dev/null 2>&1; then
-  journalctl --user --no-pager -n 2000 2>/dev/null
-fi
-`,
-  },
-  {
-    id: "journalctl-system",
-    script: `
-if command -v journalctl >/dev/null 2>&1; then
-  journalctl --no-pager -n 2000 2>/dev/null
-fi
-`,
-  },
-  {
-    id: "proc-fd-log",
-    script: `
-if [ -d /proc ]; then
-  for fd in /proc/[0-9]*/fd/1 /proc/[0-9]*/fd/2; do
-    [ -e "$fd" ] || continue
-    pid="\${fd#/proc/}"
-    pid="\${pid%%/*}"
-    cmdline="$(tr '\\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"
-    case "$cmdline" in
-      *"dsh web"*|*"@deepseek-ai/dsh"*" web"*) ;;
-      *) continue ;;
-    esac
-    target="$(readlink "$fd" 2>/dev/null)" || continue
-    case "$target" in
-      /*)
-        [ -f "$target" ] || continue
-        case "$target" in
-          /dev/*|/proc/*|/sys/*) continue ;;
-        esac
-        tail -n 2000 -- "$target" 2>/dev/null
-        ;;
-    esac
-  done
-fi
-`,
-  },
-];
-
 export function posixRemoteDshTokenProbeProgram(
-  sources: readonly RemoteDshTokenProbeSource[] = POSIX_REMOTE_DSH_TOKEN_PROBE_SOURCES,
+  script = POSIX_REMOTE_DSH_TOKEN_PROBE_SCRIPT,
 ): RemoteDshTokenProbeProgram {
   return {
     id: "posix-sh",
     args: (profile) => buildRemoteTokenProbeSshArguments(profile, ["sh", "-s"]),
-    stdin: buildPosixRemoteDshTokenProbeScript(sources),
+    stdin: script,
   };
 }
 
@@ -133,20 +76,6 @@ export function buildRemoteTokenProbeSshArguments(
     profile.sshTarget,
     ...remoteCommand,
   ];
-}
-
-export function buildPosixRemoteDshTokenProbeScript(
-  sources: readonly RemoteDshTokenProbeSource[] = POSIX_REMOTE_DSH_TOKEN_PROBE_SOURCES,
-): string {
-  return [
-    "set +e",
-    ...sources.map((source) =>
-      [
-        `printf '%s%s\\n' ${shellSingleQuote(SOURCE_MARKER)} ${shellSingleQuote(source.id)}`,
-        `(${source.script}\n) 2>/dev/null || true`,
-      ].join("\n")
-    ),
-  ].join("\n");
 }
 
 export async function collectRemoteDshWebTokenCandidates(
@@ -234,8 +163,4 @@ function uniqueTokenCandidates(
     unique.push(candidate);
   }
   return unique;
-}
-
-function shellSingleQuote(value: string): string {
-  return `'${value.replaceAll("'", `'"'"'`)}'`;
 }

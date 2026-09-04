@@ -1,9 +1,10 @@
 import { assertEquals, assertFalse, assertStringIncludes } from "@std/assert";
-import type { HiddenCommandOptions } from "../src/hidden_process.ts";
+import { type HiddenCommandOptions, runHiddenCommand } from "../src/hidden_process.ts";
 import {
   buildRemoteTokenProbeSshArguments,
   collectRemoteDshWebTokenCandidates,
   extractRemoteDshWebTokenCandidates,
+  POSIX_REMOTE_DSH_TOKEN_PROBE_SCRIPT,
   posixRemoteDshTokenProbeProgram,
   recoverRemoteDshWebToken,
   type RemoteDshTokenProbeProgram,
@@ -30,16 +31,30 @@ Deno.test("buildRemoteTokenProbeSshArguments runs a non-interactive remote comma
   assertFalse(args.includes("saved-token"));
 });
 
-Deno.test("posixRemoteDshTokenProbeProgram is assembled from append-only log sources", () => {
-  const program = posixRemoteDshTokenProbeProgram([
-    { id: "custom-source", script: "printf 'dsh web: http://127.0.0.1:3080/?token=abc\\n'" },
-  ]);
+Deno.test("posixRemoteDshTokenProbeProgram imports the maintained shell script", () => {
+  const program = posixRemoteDshTokenProbeProgram();
 
   assertEquals(program.id, "posix-sh");
   assertEquals(program.args(profile()).at(-2), "sh");
   assertEquals(program.args(profile()).at(-1), "-s");
-  assertStringIncludes(program.stdin ?? "", "custom-source");
-  assertStringIncludes(program.stdin ?? "", "dsh web:");
+  assertEquals(program.stdin, POSIX_REMOTE_DSH_TOKEN_PROBE_SCRIPT);
+  assertStringIncludes(program.stdin ?? "", "dsh_desktop_probe_tmux");
+  assertStringIncludes(program.stdin ?? "", "journalctl-user");
+  assertStringIncludes(program.stdin ?? "", "proc-fd-log");
+});
+
+Deno.test("posixRemoteDshTokenProbeProgram accepts a script override for tests", () => {
+  assertEquals(posixRemoteDshTokenProbeProgram("custom script").stdin, "custom script");
+});
+
+Deno.test("POSIX remote token probe script passes sh syntax check", async () => {
+  if (Deno.build.os === "windows") return;
+
+  const output = await runHiddenCommand("sh", ["-n"], {
+    stdin: POSIX_REMOTE_DSH_TOKEN_PROBE_SCRIPT,
+  });
+
+  assertEquals(output.success, true, output.stderr || output.stdout);
 });
 
 Deno.test("extractRemoteDshWebTokenCandidates preserves source metadata", () => {
