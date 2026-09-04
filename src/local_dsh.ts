@@ -88,10 +88,6 @@ export function buildDshWebArguments(port: number): string[] {
   return ["web", "--host", "127.0.0.1", "--port", String(port), "--no-open"];
 }
 
-function authenticatedLocalDshUrl(output: string): string | undefined {
-  return latestDshWebLaunchTokenUrl(output);
-}
-
 export async function probeLocalDshEnvironment(
   probe: (command: string, args: string[]) => Promise<CommandProbeOutput> = (command, args) =>
     runHiddenCommand(command, args, COMMAND_PATH_TIMEOUT_MS),
@@ -320,7 +316,7 @@ async function startLocalDshAttempt(
   const startedAt = Date.now();
   while (true) {
     if (web.url === baseUrl) {
-      const authenticatedUrl = authenticatedLocalDshUrl(
+      const authenticatedUrl = latestDshWebLaunchTokenUrl(
         await readProcessOutputTail(web.outputFile),
       );
       if (authenticatedUrl) web.useAuthenticatedUrl(authenticatedUrl);
