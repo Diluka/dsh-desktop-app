@@ -11,6 +11,7 @@ import {
 import { createLogger } from "./src/logger.ts";
 import { openDirectory, openExternalUrl } from "./src/open_directory.ts";
 import { ProfileStore, type ServerProfileInput } from "./src/profiles.ts";
+import { recoverRemoteDshWebToken } from "./src/remote_dsh_token_probe.ts";
 import { probeOpenSsh, SshTunnel, startSshTunnel, TunnelError } from "./src/ssh_tunnel.ts";
 import { checkForUpdate, UPDATE_RELEASE_URL } from "./src/updater.ts";
 import { handleShellRequest } from "./src/ui.ts";
@@ -297,7 +298,29 @@ async function startDesktopWithShellServer(
         activeLocal = undefined;
       }
       if (activeTunnel) await activeTunnel.stop();
-      const tunnel = await startSshTunnel(profile, logger, { spawn: spawnChild });
+      const tunnel = await startSshTunnel(profile, logger, {
+        spawn: spawnChild,
+        recoverToken: async ({ localPort }) => {
+          const recovered = await recoverRemoteDshWebToken(profile, localPort);
+          if (!recovered) return undefined;
+          try {
+            await store.save({ ...profile, dshWebToken: recovered.token });
+            logger.info({
+              event: "profiles.dsh_token_recovered",
+              profileId: profile.id,
+              sourceId: recovered.sourceId,
+            }, "Recovered remote DSH Web token was saved");
+          } catch (error) {
+            logger.warn({
+              event: "profiles.dsh_token_recovered_save_failed",
+              profileId: profile.id,
+              sourceId: recovered.sourceId,
+              err: error,
+            }, "Recovered remote DSH Web token could not be saved");
+          }
+          return { token: recovered.token, sourceId: recovered.sourceId };
+        },
+      });
       activeTunnel = tunnel;
 
       // The DSH Web page must not inherit privileged bindings from the local selector.

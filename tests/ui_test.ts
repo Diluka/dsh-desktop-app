@@ -27,6 +27,7 @@ Deno.test("shell html has key elements and parseable inline scripts", () => {
   assertMatch(SHELL_HTML, /requiresDshWebToken\(error\)/u);
   assertMatch(SHELL_HTML, /error\.code === "DSH_LOGIN_REQUIRED"/u);
   assertMatch(SHELL_HTML, /form\.elements\.dshWebToken\.focus\(\)/u);
+  assertMatch(SHELL_HTML, /需要时尝试恢复 DSH Web token/u);
 
   const scripts = [...SHELL_HTML.matchAll(/<script>([\s\S]*?)<\/script>/gu)].map((match) =>
     match[1]

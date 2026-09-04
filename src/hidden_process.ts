@@ -25,6 +25,11 @@ export interface HiddenCommandOutput extends HiddenProcessStatus {
   readonly stderr: string;
 }
 
+export interface HiddenCommandOptions {
+  readonly timeoutMilliseconds?: number;
+  readonly stdin?: string;
+}
+
 function resolveProcessLaunch(
   command: string,
   args: string[],
@@ -146,12 +151,14 @@ export async function readProcessOutputTail(filePath: string): Promise<string> {
 export async function runHiddenCommand(
   command: string,
   args: string[],
-  timeoutMilliseconds?: number,
+  options: number | HiddenCommandOptions = {},
 ): Promise<HiddenCommandOutput> {
+  const timeoutMilliseconds = typeof options === "number" ? options : options.timeoutMilliseconds;
+  const stdin = typeof options === "number" ? undefined : options.stdin;
   const launch = resolveProcessLaunch(command, args);
   const child = spawn(launch.command, launch.args, {
     windowsHide: WINDOWS_HIDE_PROCESS,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: [stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
   });
   let stdout = "";
   let stderr = "";
@@ -163,6 +170,12 @@ export async function runHiddenCommand(
   child.stderr?.on("data", (chunk) => {
     stderr += String(chunk);
   });
+  if (stdin !== undefined) {
+    child.stdin?.on("error", () => {
+      // The process may exit before it consumes the probe script.
+    });
+    child.stdin?.end(stdin);
+  }
 
   return await new Promise<HiddenCommandOutput>((resolve, reject) => {
     let settled = false;

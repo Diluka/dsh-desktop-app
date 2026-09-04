@@ -69,9 +69,11 @@ Windows 的 OpenSSH 配置通常位于 `%USERPROFILE%\.ssh\config`，Linux 和 m
 
 新版 DSH Web 可能要求启动时打印的 `token`。远程服务器配置可手动保存一个 token 字段；连接时，
 应用始终把该字段作为 `token` query 参数追加到 SSH 隧道的本地回环 URL 上，并用同一个 URL 发起 HTML
-readiness probe 和窗口导航。探针返回 `2xx` 或 `3xx` 时视为可用；返回 `401` 时立即停止隧道，
-回到服务器编辑表单并提示输入新的 token。留空时会追加空的 `token` 参数，用于兼容没有 token 的旧版 DSH
-Web。
+readiness probe 和窗口导航。探针返回 `2xx` 或 `3xx` 时视为可用。探针返回 `401` 时，应用会保持隧道，
+通过同一个 SSH Host 执行一次只读 token 探针，尝试从常见远端日志来源提取 `dsh web:` 输出；候选 token
+只有通过当前隧道验证为 `2xx` 或 `3xx`
+后才会保存到服务器配置并继续连接。自动恢复失败时，应用停止隧道， 回到服务器编辑表单并提示输入新的
+token。留空时会追加空的 `token` 参数，用于兼容没有 token 的旧版 DSH Web。
 
 ## 配置与偏好
 
@@ -108,17 +110,26 @@ token、secret、Authorization、Bearer 凭据和私钥标记进行脱敏，并�
 `.child.log` 是未经脱敏的原始输出，包含 DSH 启动 token；外发前需要检查 SSH Host、用户名、本地路径和
 其他敏感内容。POSIX 平台创建日志文件时使用 `0600`；Windows 文件继承日志目录的访问控制列表。
 
+远端 token 探针通过 `ssh -T -o BatchMode=yes -o ConnectTimeout=12 -- <Host> sh -s` 投递只读 POSIX
+shell 脚本，不在远端写临时文件。当前默认日志来源包括当前用户可访问的 tmux pane scrollback、近期
+`journalctl --user`、近期系统 `journalctl`，以及 `/proc/<pid>/fd/{1,2}` 指向普通文件且命令行类似
+`dsh web` 的 stdout/stderr 日志。探针只提取 `dsh web:` 打印 URL 中的 `token` 参数；不记录 token
+值，也不校验 token 格式。默认 POSIX 探针维护在 `src/remote_dsh_token_probe_posix.sh` 并以 text
+import 进入 TypeScript；未来新增 `screen`、Docker、Kubernetes 等 POSIX
+日志来源时直接扩展该脚本。新增 Windows remote 或其他远端执行环境时增加
+`RemoteDshTokenProbeProgram`。
+
 常见排障入口：
 
-| 现象                 | 检查项                                                        |
-| -------------------- | ------------------------------------------------------------- |
-| 本地启动按钮禁用     | 选择页中的 DSH/npx 探测结果，以及 login shell 的 profile 配置 |
-| npx 长时间等待       | 对应 `.child.log` 的下载输出；可以先终止，再在终端验证 npx    |
-| OpenSSH 不可用       | `ssh -V`；Windows 可选功能或 Linux 的 `openssh-client` 包     |
-| 主机不存在或认证失败 | `ssh <Host别名> true`、用户 OpenSSH 配置、密钥和 `ssh-agent`  |
-| 提示输入新的 token   | 远端 `dsh web` 启动输出中的最新 token，并保存到对应服务器配置 |
-| DSH Web 无法就绪     | 远端监听端口、远端回环地址和服务器配置中的 DSH Web 端口       |
-| 连接后意外返回选择页 | JSONL 中的退出事件及其 `childOutputFile`                      |
+| 现象                 | 检查项                                                          |
+| -------------------- | --------------------------------------------------------------- |
+| 本地启动按钮禁用     | 选择页中的 DSH/npx 探测结果，以及 login shell 的 profile 配置   |
+| npx 长时间等待       | 对应 `.child.log` 的下载输出；可以先终止，再在终端验证 npx      |
+| OpenSSH 不可用       | `ssh -V`；Windows 可选功能或 Linux 的 `openssh-client` 包       |
+| 主机不存在或认证失败 | `ssh <Host别名> true`、用户 OpenSSH 配置、密钥和 `ssh-agent`    |
+| 提示输入新的 token   | 自动恢复未找到可用 token；从远端 `dsh web` 启动输出取最新 token |
+| DSH Web 无法就绪     | 远端监听端口、远端回环地址和服务器配置中的 DSH Web 端口         |
+| 连接后意外返回选择页 | JSONL 中的退出事件及其 `childOutputFile`                        |
 
 完整的人工验证和日志回传模板见 [GUI 验证](GUI_TESTING.md)。
 
@@ -202,21 +213,24 @@ Release 和同名 tag，并重新创建同名 Release。发布任务会确认运
 ## 源码结构
 
 ```text
-app.ts                    桌面生命周期、bindings 与安全导航
-main.ts                   CEF 入口
-main_webview.ts           WebView2 入口
-assets/                   SVG、PNG、Windows ICO 与 macOS ICNS
-scripts/                  Windows 打包与 toolchain 环境验证
-src/app_paths.ts          跨平台配置和日志路径
-src/hidden_process.ts     隐藏子进程与独立输出文件
-src/local_dsh.ts          本地 DSH/npx 探测与启动
-src/managed_endpoint.ts   子进程停止与退出生命周期
-src/profiles.ts           服务器配置和偏好持久化
-src/ssh_tunnel.ts         OpenSSH 隧道与错误分类
-src/ui.html               本地选择页的结构、样式和交互
-src/ui.ts                 本地选择页 HTTP 响应与安全头
-tests/                    无头单元测试
-docs/                     开发、发布和 GUI 验证文档
+app.ts                         桌面生命周期、bindings 与安全导航
+main.ts                        CEF 入口
+main_webview.ts                WebView2 入口
+assets/                        SVG、PNG、Windows ICO 与 macOS ICNS
+scripts/                       Windows 打包与 toolchain 环境验证
+src/app_paths.ts               跨平台配置和日志路径
+src/dsh_web.ts                 DSH Web URL 与启动 token 解析工具
+src/hidden_process.ts          隐藏子进程与独立输出文件
+src/local_dsh.ts               本地 DSH/npx 探测与启动
+src/managed_endpoint.ts        子进程停止与退出生命周期
+src/profiles.ts                服务器配置和偏好持久化
+src/remote_dsh_token_probe.ts  远端 DSH Web token 探针与验证
+src/remote_dsh_token_probe_posix.sh  POSIX 远端日志探针脚本
+src/ssh_tunnel.ts              OpenSSH 隧道与错误分类
+src/ui.html                    本地选择页的结构、样式和交互
+src/ui.ts                      本地选择页 HTTP 响应与安全头
+tests/                         无头单元测试
+docs/                          开发、发布和 GUI 验证文档
 ```
 
 ## 当前限制

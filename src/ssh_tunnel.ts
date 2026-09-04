@@ -1,4 +1,5 @@
 import type { Logger } from "pino";
+import { loopbackDshWebUrl } from "./dsh_web.ts";
 import {
   isCommandNotFoundError,
   type ManagedHiddenProcess,
@@ -37,19 +38,37 @@ export class TunnelError extends Error {
   }
 }
 
+export interface DshWebTokenRecoveryContext {
+  readonly profile: ServerProfile;
+  readonly localPort: number;
+  readonly currentUrl: string;
+}
+
+export interface RecoveredDshWebToken {
+  readonly token: string;
+  readonly sourceId?: string;
+}
+
 interface StartTunnelOptions {
   readonly command?: string;
   readonly startupTimeoutMs?: number;
   readonly allocatePort?: () => Promise<number>;
   readonly spawn: (command: string, args: string[]) => ManagedHiddenProcess;
   readonly probe?: (url: string) => Promise<number>;
+  readonly recoverToken?: (
+    context: DshWebTokenRecoveryContext,
+  ) => Promise<RecoveredDshWebToken | undefined>;
   readonly delay?: (milliseconds: number) => Promise<void>;
   readonly now?: () => number;
 }
 
 export type TunnelExit = ManagedEndpointExit;
 
-export class SshTunnel extends ManagedEndpoint {}
+export class SshTunnel extends ManagedEndpoint {
+  useDshWebToken(localPort: number, token: string): void {
+    this.replaceUrl(loopbackDshWebUrl(localPort, token));
+  }
+}
 
 export async function probeOpenSsh(
   os: typeof Deno.build.os = Deno.build.os,
@@ -154,7 +173,8 @@ async function startTunnelAttempt(
     throw error;
   }
 
-  const tunnel = new SshTunnel(remoteDshWebUrl(localPort, profile.dshWebToken), child, delay);
+  const tunnel = new SshTunnel(loopbackDshWebUrl(localPort, profile.dshWebToken), child, delay);
+  let tokenRecoveryAttempted = false;
   const exitOutcome = tunnel.exited.then((value) => ({
     kind: "exit" as const,
     value,
@@ -186,6 +206,33 @@ async function startTunnelAttempt(
     ]);
     if (outcome.kind === "exit") throw await failureFromExit(outcome.value);
     if (outcome.kind === "login_required") {
+      if (!tokenRecoveryAttempted && options.recoverToken) {
+        tokenRecoveryAttempted = true;
+        try {
+          const recovered = await options.recoverToken({
+            profile,
+            localPort,
+            currentUrl: tunnel.url,
+          });
+          if (recovered) {
+            tunnel.useDshWebToken(localPort, recovered.token);
+            logger.info({
+              event: "ssh.dsh_token_recovered",
+              profileId: profile.id,
+              childOutputFile: tunnel.outputFile,
+              startupMs: Math.max(0, now() - startedAt),
+              sourceId: recovered.sourceId ?? "unknown",
+            }, "Recovered remote DSH Web launch token");
+            return tunnel;
+          }
+        } catch (error) {
+          logger.warn({
+            event: "ssh.dsh_token_recovery_failed",
+            profileId: profile.id,
+            err: error,
+          }, "Remote DSH Web token recovery failed");
+        }
+      }
       await tunnel.stop();
       logger.warn({
         event: "ssh.dsh_login_required",
@@ -226,12 +273,6 @@ async function startTunnelAttempt(
     "DSH_UNAVAILABLE",
     "SSH 已连接，但远端 DSH Web 未在限定时间内响应；请检查远端端口配置",
   );
-}
-
-function remoteDshWebUrl(localPort: number, token: string): string {
-  const url = new URL(`http://127.0.0.1:${localPort}/`);
-  url.searchParams.set("token", token);
-  return url.href;
 }
 
 function probeOutcome(status: number):
