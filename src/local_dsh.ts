@@ -1,4 +1,5 @@
 import type { Logger } from "pino";
+import { latestDshWebLaunchTokenUrl } from "./dsh_web.ts";
 import {
   isCommandNotFoundError,
   type ManagedHiddenProcess,
@@ -88,24 +89,7 @@ export function buildDshWebArguments(port: number): string[] {
 }
 
 function authenticatedLocalDshUrl(output: string): string | undefined {
-  let authenticatedUrl: string | undefined;
-
-  for (const line of output.split(/\r?\n/u)) {
-    const prefix = "dsh web:";
-    const trimmed = line.trim();
-    if (!trimmed.startsWith(prefix)) continue;
-    const [value] = trimmed.slice(prefix.length).trimStart().split(/\s+/u, 1);
-    if (!value) continue;
-
-    try {
-      const candidate = new URL(value);
-      if (candidate.searchParams.get("token")) authenticatedUrl = candidate.href;
-    } catch {
-      // Ignore incomplete output while dsh web is starting.
-    }
-  }
-
-  return authenticatedUrl;
+  return latestDshWebLaunchTokenUrl(output);
 }
 
 export async function probeLocalDshEnvironment(

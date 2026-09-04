@@ -155,6 +155,41 @@ Deno.test("startSshTunnel asks for a new token when remote DSH Web returns 401",
   await child.status;
 });
 
+Deno.test("startSshTunnel keeps the tunnel when a recovered token verifies", async () => {
+  const { logger } = await memoryLogger();
+  const child = fakeChild();
+  let recoveredContext:
+    | { localPort: number; currentUrl: string }
+    | undefined;
+
+  const tunnel = await startSshTunnel(profile(), logger, {
+    command: "fake-ssh",
+    allocatePort: () => Promise.resolve(41008),
+    spawn: () => child,
+    probe: (url) => {
+      assertEquals(url, "http://127.0.0.1:41008/?token=");
+      return Promise.resolve(401);
+    },
+    recoverToken: ({ localPort, currentUrl }) => {
+      recoveredContext = { localPort, currentUrl };
+      return Promise.resolve({ token: "auto-token", sourceId: "tmux" });
+    },
+    delay: () => Promise.resolve(),
+    now: () => 1000,
+  });
+
+  assertEquals(recoveredContext, {
+    localPort: 41008,
+    currentUrl: "http://127.0.0.1:41008/?token=",
+  });
+  assertEquals(tunnel.url, "http://127.0.0.1:41008/?token=auto-token");
+  assertEquals(child.kills, []);
+
+  const stopped = tunnel.stop();
+  child.finish({ success: true, code: 0, signal: null });
+  await stopped;
+});
+
 Deno.test("startSshTunnel retries LOCAL_PORT_BUSY and succeeds on a later attempt", async () => {
   const { logger } = await memoryLogger();
   const busyOutput = await tempFile("busy.log");

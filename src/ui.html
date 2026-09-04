@@ -1007,6 +1007,7 @@
           <li>读取本机 .ssh/config</li>
           <li>建立回环端口转发</li>
           <li>验证远端 DSH Web</li>
+          <li>需要时尝试恢复 DSH Web token</li>
         </ul>
         <div class="connecting-actions">
           <button id="cancel-local-start" class="button secondary" type="button"
@@ -1408,6 +1409,7 @@
           "读取本机 .ssh/config",
           "建立回环端口转发",
           "验证远端 DSH Web",
+          "需要时尝试恢复 DSH Web token",
         ]);
         try {
           await globalThis.bindings.connectProfile(profile.id);

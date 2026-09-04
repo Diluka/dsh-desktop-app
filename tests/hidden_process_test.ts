@@ -56,6 +56,16 @@ Deno.test("runHiddenCommand enforces an optional timeout", async () => {
   assert(performance.now() - started < 5_000);
 });
 
+Deno.test("runHiddenCommand can write stdin", async () => {
+  const output = await runHiddenCommand(Deno.execPath(), [
+    "eval",
+    "const input = await new Response(Deno.stdin.readable).text(); console.log(input.toUpperCase())",
+  ], { stdin: "probe script" });
+
+  assertEquals(output.success, true);
+  assertStringIncludes(output.stdout, "PROBE SCRIPT");
+});
+
 Deno.test("readProcessOutputTail starts at a complete UTF-8 character", async () => {
   const filePath = await Deno.makeTempFile();
   const suffix = "\nPermission denied";
@@ -95,38 +105,43 @@ Deno.test("spawnHiddenProcess kill terminates the process tree on Windows", asyn
   if (Deno.build.os !== "windows") return;
   const directory = await Deno.makeTempDir();
   const pidFile = join(directory, "child.pid");
-  // A .ps1 shim runs node synchronously, so the spawned child is PowerShell and
-  // the node process is a child that must not survive kill.
+  // A .ps1 shim runs a child synchronously, so the spawned child is PowerShell and
+  // its descendant process must not survive kill.
   const script = join(directory, "long-running.ps1");
-  const jsPath = pidFile.replaceAll("\\", "/");
+  const denoPath = Deno.execPath().replaceAll("\\", "/").replaceAll("'", "''");
+  const jsPath = pidFile.replaceAll("\\", "/").replaceAll("'", "\\'");
   await Deno.writeTextFile(
     script,
     [
-      `node -e "require('node:fs').writeFileSync('${jsPath}', String(process.pid)); setInterval(() => {}, 1000)"`,
+      `& '${denoPath}' eval --allow-write='${jsPath}' "await Deno.writeTextFile('${jsPath}', String(Deno.pid)); setInterval(() => {}, 1000)"`,
     ].join("\n"),
   );
 
   const child = spawnHiddenProcess(script, [], directory);
-  let nodePid = 0;
-  for (let i = 0; i < 200 && nodePid === 0; i++) {
+  let childPid = 0;
+  for (let i = 0; i < 200 && childPid === 0; i++) {
     try {
-      nodePid = Number((await Deno.readTextFile(pidFile)).trim());
+      childPid = Number((await Deno.readTextFile(pidFile)).trim());
     } catch {
-      // The node child has not written its PID yet.
+      // The descendant process has not written its PID yet.
     }
-    if (nodePid === 0) await new Promise((resolve) => setTimeout(resolve, 25));
+    if (childPid === 0) await new Promise((resolve) => setTimeout(resolve, 25));
   }
-  assert(nodePid > 0, "the node child did not start");
+  if (childPid === 0) {
+    const detail = await readProcessOutputTail(child.outputFile);
+    child.kill("SIGTERM");
+    assert(false, `the descendant process did not start: ${detail}`);
+  }
 
   child.kill("SIGTERM");
   assertEquals((await child.status).success, false);
 
-  let alive = await processExists(nodePid);
+  let alive = await processExists(childPid);
   for (let i = 0; i < 40 && alive; i++) {
     await new Promise((resolve) => setTimeout(resolve, 50));
-    alive = await processExists(nodePid);
+    alive = await processExists(childPid);
   }
-  assertFalse(alive, "the grandchild node process is still running");
+  assertFalse(alive, "the descendant process is still running");
 });
 
 async function processExists(pid: number): Promise<boolean> {
