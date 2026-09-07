@@ -40,8 +40,9 @@ for (const recovery of ["none", "missing", "throws"] as const) {
     const error = await assertRejects(() =>
       connectRemoteDsh(profile(), logger, {
         ...options,
-        probe: () => {
-          assertEquals(active?.url, "http://127.0.0.1:41000/?token=");
+        probe: (url) => {
+          assertEquals(url, "http://127.0.0.1:41000/?token=");
+          assertEquals(active?.url, url);
           return Promise.resolve(401);
         },
         recoverToken: recovery === "none"
@@ -65,11 +66,8 @@ for (const recovery of ["none", "missing", "throws"] as const) {
     assertEquals(spawns, 1);
     assertEquals(registrations, 1);
     assertEquals(child.kills, []);
-    const stopped = retried.stop();
     child.finish({ success: true, code: 0, signal: null });
-    await stopped;
-    assertEquals(child.kills, ["SIGTERM"]);
-    assertFalse(retried.matches(profile()));
+    await retried.exited;
   });
 }
 

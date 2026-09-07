@@ -129,38 +129,6 @@ Deno.test("connectRemoteDsh probes and exposes the saved DSH Web token URL", asy
   await stopped;
 });
 
-Deno.test("connectRemoteDsh asks for a new token when remote DSH Web returns 401", async () => {
-  const { logger } = await memoryLogger();
-  const child = fakeChild();
-  const originalKill = child.kill.bind(child);
-  child.kill = (signal?: Deno.Signal) => {
-    originalKill(signal);
-    if (signal === "SIGTERM") child.finish({ success: false, code: 143, signal: "SIGTERM" });
-  };
-
-  const error = await assertRejects(
-    () =>
-      connectRemoteDsh(profile(), logger, {
-        command: "fake-ssh",
-        onTunnel: () => {},
-        allocatePort: () => Promise.resolve(41007),
-        spawn: () => child,
-        probe: (url) => {
-          assertEquals(url, "http://127.0.0.1:41007/?token=");
-          return Promise.resolve(401);
-        },
-        delay: () => Promise.resolve(),
-        now: () => 1000,
-      }),
-    TunnelError,
-  );
-
-  assertEquals(error.code, "DSH_LOGIN_REQUIRED");
-  assertEquals(child.kills, []);
-  child.finish({ success: true, code: 0, signal: null });
-  await child.status;
-});
-
 Deno.test("connectRemoteDsh keeps the tunnel when a recovered token verifies", async () => {
   const { logger } = await memoryLogger();
   const child = fakeChild();
