@@ -855,10 +855,21 @@
         <div class="workspace-inner">
           <div id="notice" class="notice" role="alert" hidden></div>
           <div id="reconnect-panel" class="notice" hidden>
+            <strong>SSH 进程</strong>
             <p id="reconnect-message" role="status" aria-live="polite"></p>
-            <button id="reconnect-now" class="button small primary" type="button">立即重试</button>
+            <button id="reconnect-now" class="button small primary"
+              type="button">重新启动 SSH</button>
             <button id="reconnect-cancel" class="button small secondary"
-              type="button">取消重连</button>
+              type="button">取消重建</button>
+          </div>
+          <div id="dsh-connection-panel" class="notice" hidden>
+            <strong>DSH 连接 · 独立于 SSH 进程</strong>
+            <p id="dsh-connection-message" role="status" aria-live="polite"></p>
+            <button id="dsh-retry" class="button small primary" type="button">重新检查 DSH</button>
+            <button id="dsh-update-token" class="button small secondary" type="button"
+              hidden>更新 token</button>
+            <button id="dsh-cancel" class="button small secondary"
+              type="button">取消 DSH 检查</button>
           </div>
 
           <div id="update-banner" class="update-banner" role="status" hidden>
@@ -1052,8 +1063,14 @@
       var reconnectNow = document.getElementById("reconnect-now");
       var reconnectCancel = document.getElementById("reconnect-cancel");
       var reconnectState = null;
-      var reconnectPollTimer;
-      var reconnectRevision = 0;
+      var dshPanel = document.getElementById("dsh-connection-panel");
+      var dshMessage = document.getElementById("dsh-connection-message");
+      var dshRetry = document.getElementById("dsh-retry");
+      var dshUpdateToken = document.getElementById("dsh-update-token");
+      var dshCancel = document.getElementById("dsh-cancel");
+      var dshState = null;
+      var remotePollTimer;
+      var remoteRevision = 0;
       var toast = document.getElementById("toast");
       var connecting = document.getElementById("connecting");
       var cancelLocalButton = document.getElementById("cancel-local-start");
@@ -1089,8 +1106,8 @@
         reconnectCancel.disabled = true;
         try {
           await globalThis.bindings.cancelReconnect();
-          renderReconnect(null);
-          showNotice("已取消自动重连，可以选择服务器重新连接。");
+          renderRemoteConnection(null);
+          showNotice("已取消 SSH 进程重建，可以选择服务器重新连接。");
         } catch (error) {
           showToast(errorMessage(error));
         } finally {
@@ -1102,12 +1119,38 @@
           return item.id === reconnectState.profileId;
         });
         if (!profile) return;
-        if (reconnectState.errorCode === "DSH_LOGIN_REQUIRED") {
-          promptForDshWebToken(profile, reconnectState.message);
-          return;
-        }
-        renderReconnect(null);
+        renderRemoteConnection(null);
         void connectProfile(profile);
+      });
+      dshRetry.addEventListener("click", async function () {
+        dshRetry.disabled = true;
+        invalidateRemotePoll();
+        try {
+          await globalThis.bindings.retryDshConnection();
+          await pollRemoteConnection();
+        } catch (error) {
+          showToast(errorMessage(error));
+        } finally {
+          dshRetry.disabled = false;
+        }
+      });
+      dshCancel.addEventListener("click", async function () {
+        dshCancel.disabled = true;
+        invalidateRemotePoll();
+        try {
+          await globalThis.bindings.cancelDshConnection();
+          await pollRemoteConnection();
+        } catch (error) {
+          showToast(errorMessage(error));
+        } finally {
+          dshCancel.disabled = false;
+        }
+      });
+      dshUpdateToken.addEventListener("click", function () {
+        var profile = dshState && state.profiles.find(function (item) {
+          return item.id === dshState.profileId;
+        });
+        if (profile) promptForDshWebToken(profile, dshState.message);
       });
       document.getElementById("add-server").addEventListener("click", function () {
         openEditor();
@@ -1161,7 +1204,7 @@
           ? "本地模式优先使用 dsh；不可用时通过 npx 启动。"
           : "认证使用 .ssh/config、密钥或 ssh-agent；应用不处理密码。";
         if (persist && state.ready) {
-          if (local) renderReconnect(null);
+          if (local) renderRemoteConnection(null);
           globalThis.bindings.setModePreference(state.mode).catch(function (error) {
             showToast(errorMessage(error));
           });
@@ -1181,7 +1224,7 @@
           }
           var data = await globalThis.bindings.bootstrap();
           applyBootstrapData(data);
-          if (data.startupNotice && !data.reconnect) showNotice(data.startupNotice);
+          if (data.startupNotice && !data.reconnect && !data.dsh) showNotice(data.startupNotice);
           if (state.mode === "remote" && !state.profiles.length) openEditor();
         } catch (error) {
           var detail = errorMessage(error);
@@ -1194,26 +1237,44 @@
         }
       }
 
-      function renderReconnect(value) {
-        reconnectRevision += 1;
-        window.clearTimeout(reconnectPollTimer);
-        reconnectState = value;
-        reconnectPanel.hidden = !value;
-        if (!value) return;
-        notice.hidden = true;
-        reconnectMessage.textContent = value.message;
-        reconnectCancel.hidden = !value.active;
-        reconnectNow.textContent = value.errorCode === "DSH_LOGIN_REQUIRED" ? "更新 token" : "立即重试";
-        if (value.active) {
-          reconnectPollTimer = window.setTimeout(pollReconnect, 500);
+      function invalidateRemotePoll() {
+        remoteRevision += 1;
+        window.clearTimeout(remotePollTimer);
+      }
+
+      function renderRemoteConnection(value) {
+        invalidateRemotePoll();
+        reconnectState = value && value.reconnect;
+        dshState = value && value.dsh;
+        reconnectPanel.hidden = !reconnectState;
+        dshPanel.hidden = !dshState;
+        if (reconnectState) {
+          notice.hidden = true;
+          reconnectMessage.textContent = reconnectState.message;
+          reconnectCancel.hidden = !reconnectState.active;
+          reconnectNow.hidden = !reconnectState.active && value.remoteActive &&
+            !reconnectState.errorCode;
+        }
+        if (dshState) {
+          notice.hidden = true;
+          dshMessage.textContent = dshState.message;
+          dshCancel.hidden = !dshState.active;
+          dshUpdateToken.hidden = dshState.errorCode !== "DSH_LOGIN_REQUIRED";
+        }
+        // A DSH login/error state does not end SSH process supervision.
+        if (
+          value && (value.remoteActive || (reconnectState && reconnectState.active) ||
+            (dshState && dshState.active))
+        ) {
+          remotePollTimer = window.setTimeout(pollRemoteConnection, 500);
         }
       }
 
-      async function pollReconnect() {
-        var revision = reconnectRevision;
+      async function pollRemoteConnection() {
+        var revision = remoteRevision;
         try {
-          var value = await globalThis.bindings.getReconnectState();
-          if (revision === reconnectRevision) renderReconnect(value);
+          var value = await globalThis.bindings.getRemoteConnectionState();
+          if (revision === remoteRevision) renderRemoteConnection(value);
         } catch (_) {
           // Successful navigation removes shell bindings; stop polling there.
         }
@@ -1236,7 +1297,7 @@
         renderSshStatus();
         renderLocalEnvironment();
         renderProfiles();
-        renderReconnect(data.reconnect);
+        renderRemoteConnection(data);
         if (firstBootstrap && state.updatesSupported) void checkForUpdate();
       }
 
@@ -1418,6 +1479,9 @@
       async function saveProfile(event) {
         event.preventDefault();
         var submit = form.querySelector('button[type="submit"]');
+        var retryDshProfileId = dshState && dshState.profileId === state.editingId
+          ? state.editingId
+          : null;
         submit.disabled = true;
         try {
           await globalThis.bindings.saveProfile({
@@ -1431,6 +1495,14 @@
           applyBootstrapData(data);
           closeEditor();
           showToast("服务器配置已保存");
+          if (
+            retryDshProfileId && data.remoteActive && data.dsh &&
+            data.dsh.profileId === retryDshProfileId
+          ) {
+            invalidateRemotePoll();
+            await globalThis.bindings.retryDshConnection();
+            await pollRemoteConnection();
+          }
         } catch (error) {
           showToast(errorMessage(error));
         } finally {
@@ -1465,26 +1537,24 @@
       }
 
       async function connectProfile(profile) {
-        renderReconnect(null);
+        renderRemoteConnection(null);
         state.profiles = [profile].concat(state.profiles.filter(function (item) {
           return item.id !== profile.id;
         }));
         renderProfiles();
         showConnecting("正在连接", "正在连接 “" + profile.name + "”", [
           "读取本机 .ssh/config",
-          "建立回环端口转发",
-          "验证远端 DSH Web",
-          "需要时尝试恢复 DSH Web token",
+          "启动受管 SSH 进程",
+          "DSH 连接将在进程启动后独立检查",
         ]);
         try {
           await globalThis.bindings.connectProfile(profile.id);
-        } catch (error) {
           connecting.hidden = true;
-          if (requiresDshWebToken(error)) {
-            promptForDshWebToken(profile, errorMessage(error));
-            return;
-          }
+          await pollRemoteConnection();
+        } catch (error) {
           showToast(errorMessage(error));
+        } finally {
+          connecting.hidden = true;
         }
       }
 
@@ -1566,12 +1636,6 @@
         toastTimer = window.setTimeout(function () {
           toast.hidden = true;
         }, 5200);
-      }
-
-      function requiresDshWebToken(error) {
-        var message = errorMessage(error);
-        return Boolean(error && error.code === "DSH_LOGIN_REQUIRED") ||
-          message.indexOf("远端 DSH Web 要求登录") !== -1;
       }
 
       function errorMessage(error) {

@@ -112,7 +112,12 @@ export function spawnHiddenProcess(
     settle({ success: code === 0, code, signal, ...(error ? { error } : {}) });
   };
 
-  child.once("error", (error) => finish(127, null, error));
+  child.on("error", (error) => {
+    // No PID means spawn failed (for example ENOENT or EACCES). Once a
+    // process exists, an operation error is not an exit: keep listening for
+    // errors to avoid unhandled events, and settle only on its actual close.
+    if (child.pid === undefined) finish(127, null, error);
+  });
   child.once("close", (code, signal) => finish(code ?? 1, signal));
 
   return {

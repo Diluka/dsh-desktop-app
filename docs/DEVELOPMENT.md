@@ -52,6 +52,9 @@ OpenSSH 使用以下固定选项：
 -T
 BatchMode=yes
 ExitOnForwardFailure=yes
+ForkAfterAuthentication=no
+ControlMaster=no
+ControlPath=none
 ConnectTimeout=12
 ServerAliveInterval=30
 ServerAliveCountMax=3
@@ -67,13 +70,27 @@ ssh <Host别名> true
 Windows 的 OpenSSH 配置通常位于 `%USERPROFILE%\.ssh\config`，Linux 和 macOS 位于
 `~/.ssh/config`。远端 DSH Web 默认端口是 `3080`。
 
-新版 DSH Web 可能要求启动时打印的 `token`。远程服务器配置可手动保存一个 token 字段；连接时，
-应用始终把该字段作为 `token` query 参数追加到 SSH 隧道的本地回环 URL 上，并用同一个 URL 发起 HTML
-readiness probe 和窗口导航。探针返回 `2xx` 或 `3xx` 时视为可用。探针返回 `401` 时，应用会保持隧道，
-通过同一个 SSH Host 执行一次只读 token 探针，尝试从常见远端日志来源提取 `dsh web:` 输出；候选 token
-只有通过当前隧道验证为 `2xx` 或 `3xx`
-后才会保存到服务器配置并继续连接。自动恢复失败时，应用停止隧道， 回到服务器编辑表单并提示输入新的
-token。留空时会追加空的 `token` 参数，用于兼容没有 token 的旧版 DSH Web。
+主 SSH 是应用专属的前台进程，固定关闭后台化和 multiplex，确保停止/退出事件对应实际隧道进程。
+其他认证、Host、代理跳转等配置仍由 OpenSSH 读取；应用不改写用户 SSH 配置。
+
+SSH 层仅分配本地端口、启动进程并观察退出，不使用 TCP/HTTP 探针、token 或 DSH 就绪状态。
+进程启动不代表 SSH 认证、转发或 DSH 已就绪。只有非主动退出会触发应用的进程重建；SSH 自身的
+`ExitOnForwardFailure` 处理转发监听失败，keepalive 超限也会导致进程退出。远端 DSH 目标端口连接失败
+不属于主 SSH 进程失败。每次非主动退出后固定等待 1 秒，再创建一个替代进程，避免快速退出形成忙循环。
+没有基于 HTTP、token、就绪探针或计数预算的 SSH 重试策略；SSH
+错误分类仅用于诊断。用户主动停止后取消待执行的创建。
+
+DSH 层通过已经托管的 SSH 进程单独检查 HTTP。保存的 token 仅用于 DSH URL 的 query 参数；`2xx/3xx`
+表示 DSH 可访问，`401` 则尝试通过辅助 SSH 命令从日志恢复 token，验证成功后保存。自动恢复失败时保留主
+SSH 进程，显示 DSH 登录状态和“更新 token”入口；服务不可用则显示 DSH 检查失败和“重新检查 DSH”。
+留空时追加空 token，兼容旧版 DSH Web。
+
+SSH 退出观察与 DSH 检查分别持有状态和取消信号。取消 DSH 检查会等待辅助探测进程/HTTP 清理，但不停止主
+SSH；主 SSH 真正退出会取消已失效的 DSH 工作，并在新进程创建后重新发起 DSH 检查。相同 profile 的
+token/name 更新保留主进程；更换 SSH
+目标/远端端口、删除当前配置、切换本地模式或退出应用才按用户意图清理主进程。
+异步结果必须仍属于当前进程和当前检查，才能保存 token 或导航；所有本地 native bindings
+在远端导航前解绑。
 
 ## 配置与偏好
 
@@ -226,8 +243,8 @@ src/managed_endpoint.ts        子进程停止与退出生命周期
 src/profiles.ts                服务器配置和偏好持久化
 src/remote_dsh_token_probe.ts  远端 DSH Web token 探针与验证
 src/remote_dsh_token_probe_posix.sh  POSIX 远端日志探针脚本
-src/ssh_tunnel.ts              可取消的 OpenSSH 隧道启动与错误分类
-src/ssh_reconnect.ts           有限退避重连与终止错误策略
+src/ssh_tunnel.ts              主 OpenSSH 进程创建与退出错误分类
+src/dsh_connection.ts          独立 HTTP 可用性检查、登录错误与 token 恢复
 src/ui.html                    本地选择页的结构、样式和交互
 src/ui.ts                      本地选择页 HTTP 响应与安全头
 tests/                         无头单元测试
@@ -237,8 +254,9 @@ docs/                          开发、发布和 GUI 验证文档
 ## 当前限制
 
 - OpenSSH 认证依赖密钥或 `ssh-agent`，应用不提供密码和 passphrase 交互。
-- SSH 意外退出后返回选择页并最多自动重连 5 次，可取消或立即重试；恢复后重新加载远端页面。 本地 DSH
-  进程意外退出后返回选择页，由用户重新启动。
+- SSH 进程非主动退出才触发重新创建；DSH HTTP/token
+  错误保留存活进程并单独提示。进程重建后重新打开远端页面 不保留未提交输入。本地 DSH
+  进程意外退出后由用户重新启动。
 - macOS 分发包未签名和 notarize，首次打开可能需要通过 Finder 确认。
 - 真实窗口、图标、WebView2 Runtime 和平台集成行为仍需按照 [GUI 验证](GUI_TESTING.md)
   在目标系统检查。

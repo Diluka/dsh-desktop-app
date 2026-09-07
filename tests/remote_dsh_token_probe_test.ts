@@ -1,4 +1,3 @@
-import { kill as signalProcess } from "node:process";
 import { assertEquals, assertFalse, assertRejects, assertStringIncludes } from "@std/assert";
 import { type HiddenCommandOptions, runHiddenCommand } from "../src/hidden_process.ts";
 import {
@@ -12,8 +11,7 @@ import {
 import POSIX_REMOTE_DSH_TOKEN_PROBE_SCRIPT from "../src/remote_dsh_token_probe_posix.sh" with {
   type: "text",
 };
-import { startSshTunnel } from "../src/ssh_tunnel.ts";
-import { fakeChild, memoryLogger, profile } from "./test_helpers.ts";
+import { profile } from "./test_helpers.ts";
 
 Deno.test("buildRemoteTokenProbeSshArguments runs a non-interactive remote command", () => {
   const args = buildRemoteTokenProbeSshArguments(
@@ -311,88 +309,6 @@ Deno.test("remote token recovery aborts an active candidate HTTP request without
   } finally {
     controller.abort();
     release.resolve();
-    await result.catch(() => undefined);
-    await server.shutdown();
-  }
-});
-
-Deno.test("SSH startup cancellation waits for the real recovery process to exit", async () => {
-  const { logger } = await memoryLogger();
-  const controller = new AbortController();
-  const started = Promise.withResolvers<number>();
-  const server = Deno.serve(
-    { hostname: "127.0.0.1", port: 0, onListen: () => {} },
-    async (request) => {
-      started.resolve(Number(await request.text()));
-      return new Response("ready");
-    },
-  );
-  const child = fakeChild();
-  const kill = child.kill.bind(child);
-  child.kill = (signal) => {
-    kill(signal);
-    child.finish({ success: false, code: 143, signal: "SIGTERM" });
-  };
-  let candidateProbes = 0;
-  let recoveryFinished = false;
-  const result = startSshTunnel(profile(), logger, {
-    signal: controller.signal,
-    allocatePort: () => Promise.resolve(41000),
-    spawn: () => child,
-    probe: () => Promise.resolve(401),
-    delay: () => Promise.resolve(),
-    recoverToken: async () => {
-      try {
-        return await recoverRemoteDshWebToken(profile(), 41000, {
-          signal: controller.signal,
-          command: Deno.execPath(),
-          timeoutMilliseconds: 5_000,
-          programs: [{
-            id: "real-process",
-            args: () => [
-              "eval",
-              `
-            await fetch("http://127.0.0.1:${server.addr.port}", { method: "POST", body: String(Deno.pid) });
-            setInterval(() => {}, 1000);
-          `,
-            ],
-          }],
-          probe: () => {
-            candidateProbes++;
-            return Promise.resolve(200);
-          },
-        });
-      } finally {
-        recoveryFinished = true;
-      }
-    },
-  });
-  try {
-    const pid = await Promise.race([
-      started.promise,
-      result.then(() => {
-        throw new Error("startup completed before the recovery process started");
-      }),
-    ]);
-    const rejected = assertRejects(() => result, DOMException);
-    controller.abort();
-    assertEquals((await rejected).name, "AbortError");
-    assertEquals(recoveryFinished, true);
-    assertEquals(candidateProbes, 0);
-    assertEquals(child.kills, ["SIGTERM"]);
-    if (Deno.build.os === "windows") {
-      const running = await runHiddenCommand("tasklist", ["/fi", `PID eq ${pid}`, "/nh"]);
-      assertFalse(running.stdout.includes(String(pid)));
-    } else {
-      let alive = false;
-      try {
-        signalProcess(pid, 0);
-        alive = true;
-      } catch { /* process exited */ }
-      assertFalse(alive, "startup cancellation left the recovery process running");
-    }
-  } finally {
-    controller.abort();
     await result.catch(() => undefined);
     await server.shutdown();
   }

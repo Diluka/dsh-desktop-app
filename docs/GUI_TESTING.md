@@ -113,8 +113,8 @@ tail -f "$(ls -t "$log_dir"/dsh-desktop-*.jsonl | head -n 1)"
 4. 使用 DSH 的普通导航、流式输出和会话功能，确认当前后端渲染及 WebSocket/流式行为正常。
 5. 关闭窗口，确认本地 `ssh` 子进程同时退出。
 
-预期日志依次包含 `ssh.tunnel_starting`、`ssh.tunnel_ready`，关闭时包含 `ssh.tunnel_exited` 且
-`stopRequested` 为 `true`。
+预期 SSH 进程创建写入启动日志；只有独立 DSH 检查成功才导航到远端页面。关闭时
+`ssh.tunnel_exited.stopRequested` 为 `true`。
 
 ### 3. 自定义远端端口
 
@@ -143,24 +143,27 @@ tail -f "$(ls -t "$log_dir"/dsh-desktop-*.jsonl | head -n 1)"
 - 无法认证的测试 Host
 - 正确 SSH Host + 错误 DSH Web 端口
 
-预期应用停留或返回选择页，给出可操作的中文错误；JSONL 包含 `ssh.tunnel_failed`、
-`ssh.connect_failed` 和 `childOutputFile`，对应 `.child.log` 保留 OpenSSH 原始输出。应用不崩溃、
-不残留长期运行的 `ssh` 子进程，原始输出也不应出现在 JSONL 中。
+预期错误按层展示：SSH Host/认证错误对应进程退出和 SSH 进程提示；错误的 DSH 目标端口对应 DSH
+检查失败， 已经运行的 SSH 进程必须保留。日志以 `childOutputFile` 关联 OpenSSH
+原始输出，原始输出不应写入 JSONL。 关闭应用后检查受管进程全部退出。
 
-### 6. 断线自动重连
+### 6. SSH 进程监管与 DSH 检查隔离
 
-1. 连接成功后，让测试 SSH 会话中断（例如断开测试网络，或结束对应本地 `ssh` 进程）。
-2. 确认窗口返回选择页，显示等待/重连进度；恢复网络后自动重新打开 DSH Web。
-3. 保持测试网络不可用，确认依次等待 `1、2、4、8、15` 秒，最多 5 次后显示失败及手动重试入口。
-4. 分别在等待期间和正在连接时点击“取消重连”，确认停止重试并清理当前 SSH 子进程。
-5. 重复中断后选择另一服务器、切换本地模式或关闭应用，确认旧连接不会在后台重新建立或抢回窗口。
-6. 在测试机器执行一次休眠/唤醒，确认 SSH 检测到退出后触发同样的恢复流程（检测由 OpenSSH keepalive
-   驱动）。
-7. 模拟 SSH 认证/主机密钥错误，确认停止自动重试；token 失效且恢复失败时显示“更新 token”。
+1. 记录主 SSH PID。让 DSH 返回 `401` 且 token 恢复失败，确认只出现 DSH 登录提示，主 SSH PID
+   保持不变。
+2. 模拟 DSH `500`、停机或目标端口拒绝连接，确认检查失败仍保留主 SSH；“重新检查 DSH”不增加主 SSH
+   创建次数。
+3. 更新当前配置的 token 并保存，确认重新检查使用相同 SSH PID。点击“取消 DSH 检查”也必须保留它。
+4. 在上述等待登录、检查失败、已取消 DSH 检查三种状态下，分别结束主 SSH 进程；确认真实退出仍触发 SSH
+   重建。
+5. 连续两次结束不同的主 SSH 进程，确认每次真实退出后约 1 秒创建一个替代进程；保持新进程存活时， 即使
+   DSH HTTP 一直失败，也不能自行创建更多进程。
+6. 点击“取消重建”、切换另一目标/本地模式、删除当前配置或关闭应用，确认两层工作按用户意图清理，旧结果不会抢回窗口。
+7. 在目标机器休眠/唤醒，确认应用只在 OpenSSH 自己退出后重建；存活进程不因页面/HTTP 状态被重建。
+8. 模拟 SSH 认证/主机密钥错误，确认只有真实退出后才展示 SSH 错误；DSH token 错误只出现在 DSH 面板。
 
-预期 `ssh.tunnel_exited.stopRequested` 为 `false`，随后有重试事件；恢复成功记录 `ssh.reconnected`，
-停止重试记录 `ssh.reconnect_stopped`。主动退出不触发重连。恢复会重新加载 DSH
-Web，未提交的页面输入不保留。
+预期 SSH 自动重建都有对应的 `ssh.tunnel_exited.stopRequested=false`；主动停止不触发重建。 DSH
+错误只影响独立连接状态。SSH 进程退出后重新打开 DSH 页面时，未提交的页面输入不保留。
 
 另在独立的 80 列 tmux 测试窗口启动带 token 的 DSH Web，留空客户端 token 后连接；确认跨列折行的启动
 URL 仍能自动恢复 token，日志仅记录来源和事件，不记录 token 明文。

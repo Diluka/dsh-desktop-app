@@ -87,12 +87,58 @@ Deno.test("readProcessOutputTail starts at a complete UTF-8 character", async ()
 
 Deno.test("spawnHiddenProcess reports command lookup failures without parsing output", async () => {
   const directory = await Deno.makeTempDir();
-  const child = spawnHiddenProcess(`missing-${crypto.randomUUID()}`, [], directory);
-  const status = await child.status;
+  const child = spawnHiddenProcess(join(directory, "does-not-exist"), [], directory);
+  try {
+    const status = await child.status;
+    assertEquals(status.success, false);
+    assertEquals(status.code, 127);
+    assertEquals(status.signal, null);
+    assert(isCommandNotFoundError(status.error));
+    assertEquals(await readProcessOutputTail(child.outputFile), "");
+    // A failed spawn still releases the output file and can be cleaned up.
+    child.kill("SIGTERM");
+    assertEquals(await child.status, status);
+  } finally {
+    await Deno.remove(directory, { recursive: true });
+  }
+});
 
-  assertEquals(status.success, false);
-  assertEquals(status.code, 127);
-  assert(isCommandNotFoundError(status.error));
+Deno.test({
+  name: "spawnHiddenProcess reports EACCES as creation failure and releases its log",
+  ignore: Deno.build.os === "windows",
+  async fn() {
+    const directory = await Deno.makeTempDir();
+    const command = join(directory, "not-executable");
+    try {
+      await Deno.writeTextFile(command, "#!/bin/sh\nexit 0\n", { mode: 0o600 });
+      const child = spawnHiddenProcess(command, [], directory);
+      const status = await child.status;
+      assertEquals(status.success, false);
+      assertEquals(status.code, 127);
+      assertEquals(status.signal, null);
+      assert(status.error instanceof Error);
+      assert("code" in status.error);
+      assertEquals(status.error.code, "EACCES");
+      assertFalse(isCommandNotFoundError(status.error));
+      assertEquals(await readProcessOutputTail(child.outputFile), "");
+      child.kill("SIGTERM");
+      assertEquals(await child.status, status);
+    } finally {
+      await Deno.remove(directory, { recursive: true });
+    }
+  },
+});
+
+Deno.test("spawnHiddenProcess distinguishes an actual exit 127 from creation failure", async () => {
+  const directory = await Deno.makeTempDir();
+  const child = spawnHiddenProcess(Deno.execPath(), ["eval", "Deno.exit(127)"], directory);
+  try {
+    assertEquals(await child.status, { success: false, code: 127, signal: null });
+  } finally {
+    child.kill("SIGTERM");
+    await child.status;
+    await Deno.remove(directory, { recursive: true });
+  }
 });
 
 Deno.test("spawnHiddenProcess kill stops a running child", async () => {

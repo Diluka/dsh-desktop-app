@@ -1,5 +1,6 @@
 import { resolveAppPaths } from "./src/app_paths.ts";
 import { BUILD_COMMIT } from "./src/build_info.ts";
+import { connectDshWeb, DshConnectionError } from "./src/dsh_connection.ts";
 import { readProcessOutputTail, spawnHiddenProcess } from "./src/hidden_process.ts";
 import {
   LocalDshError,
@@ -11,21 +12,37 @@ import {
 import { createLogger } from "./src/logger.ts";
 import { openDirectory, openExternalUrl } from "./src/open_directory.ts";
 import { ProfileStore, type ServerProfile, type ServerProfileInput } from "./src/profiles.ts";
-import { reconnectSshTunnel, type SshReconnectProgress } from "./src/ssh_reconnect.ts";
-import { recoverRemoteDshWebToken } from "./src/remote_dsh_token_probe.ts";
-import { probeOpenSsh, SshTunnel, startSshTunnel, TunnelError } from "./src/ssh_tunnel.ts";
+import {
+  classifySshFailure,
+  probeOpenSsh,
+  SshTunnel,
+  startSshTunnel,
+  TunnelError,
+} from "./src/ssh_tunnel.ts";
 import { checkForUpdate, UPDATE_RELEASE_URL } from "./src/updater.ts";
 import { handleShellRequest } from "./src/ui.ts";
 import { setWindowsWindowIcon } from "./src/windows_window_icon.ts";
 
 export type DesktopBackend = "cef" | "webview";
 
-interface ReconnectState {
+interface RemoteLayerState {
   readonly profileId: string;
   readonly profileName: string;
   readonly active: boolean;
   readonly message: string;
   readonly errorCode?: string;
+}
+
+interface RemoteConnection {
+  profile: ServerProfile;
+  readonly generation: number;
+  tunnel?: SshTunnel;
+  sshController?: AbortController;
+  sshTask?: Promise<void>;
+  observerTask?: Promise<void>;
+  dshController?: AbortController;
+  dshTask?: Promise<void>;
+  dshGeneration: number;
 }
 
 interface ShellServer {
@@ -120,13 +137,15 @@ async function startDesktopWithShellServer(
     }
   }
 
-  let activeTunnel: SshTunnel | undefined;
+  let remote: RemoteConnection | undefined;
+  let remoteGeneration = 0;
+  let remoteRequest = 0;
+  let remoteStopTask: Promise<void> | undefined;
+  let profileWriteTask: Promise<unknown> = Promise.resolve();
+  let reconnectState: RemoteLayerState | undefined;
+  let dshState: RemoteLayerState | undefined;
   let activeLocal: LocalDshWeb | undefined;
   let localStartController: AbortController | undefined;
-  let remoteStartController: AbortController | undefined;
-  let reconnectController: AbortController | undefined;
-  let reconnectTask: Promise<void> | undefined;
-  let reconnectState: ReconnectState | undefined;
   let connecting = false;
   let connectionTask: Promise<void> | undefined;
   let shellBindingsActive = false;
@@ -173,18 +192,48 @@ async function startDesktopWithShellServer(
         updatesSupported: BUILD_COMMIT !== "development" && Deno.build.os !== "linux",
         browserBackend: backend === "webview" ? "Microsoft Edge WebView2" : "Chromium / CEF",
         ...(startupNotice ? { startupNotice } : {}),
-        reconnect: reconnectState,
+        ...getRemoteConnectionState(),
       };
     });
-    window.bind("getReconnectState", () => Promise.resolve(reconnectState ?? null));
+    window.bind("getRemoteConnectionState", () => Promise.resolve(getRemoteConnectionState()));
     window.bind("cancelReconnect", async () => {
       await cancelReconnect();
       return null;
     });
+    window.bind("retryDshConnection", async () => {
+      const owner = remote;
+      if (!owner || !ownsRemote(owner) || !owner.tunnel) {
+        throw new Error("SSH 进程尚未运行，请先连接服务器");
+      }
+      // Start the independent task, but do not await its HTTP work.
+      await startDshConnection(owner);
+      return null;
+    });
+    window.bind("cancelDshConnection", async () => {
+      const owner = remote;
+      if (owner) await cancelDshConnection(owner);
+      return null;
+    });
     window.bind("saveProfile", async (input: ServerProfileInput) => {
       try {
-        if (input.id === reconnectState?.profileId) await cancelReconnect();
-        const profile = await store.save(input);
+        const owner = remote;
+        if (owner && input.id === owner.profile.id) {
+          if (remoteStopTask) await remoteStopTask;
+          else await cancelDshConnection(owner);
+        }
+        const profile = await writeProfiles(() => store.save(input));
+        if (owner && remote === owner && profile.id === owner.profile.id) {
+          if (!sameEndpoint(owner.profile, profile)) {
+            await cancelReconnect();
+          } else {
+            owner.profile = profile;
+            // A process may have respawned while the profile write was pending.
+            await cancelDshConnection(owner);
+            if (reconnectState?.profileId === profile.id) {
+              reconnectState = { ...reconnectState, profileName: profile.name };
+            }
+          }
+        }
         logger.info({
           event: "profiles.saved",
           profileId: profile.id,
@@ -201,8 +250,8 @@ async function startDesktopWithShellServer(
       }
     });
     window.bind("deleteProfile", async (id: unknown) => {
-      if (id === reconnectState?.profileId) await cancelReconnect();
-      const deleted = await store.delete(id);
+      if (id === remote?.profile.id) await cancelReconnect();
+      const deleted = await writeProfiles(() => store.delete(id));
       if (deleted) {
         logger.info({
           event: "profiles.deleted",
@@ -213,7 +262,7 @@ async function startDesktopWithShellServer(
     });
     window.bind("setModePreference", async (mode: unknown) => {
       if (mode === "local") await cancelReconnect();
-      await store.setConnectionMode(mode);
+      await writeProfiles(() => store.setConnectionMode(mode));
       return null;
     });
     window.bind("openLogDirectory", async () => {
@@ -261,7 +310,7 @@ async function startDesktopWithShellServer(
       }
     });
     window.bind("connectProfile", async (id: unknown) => {
-      await runConnection(() => connectProfile(id));
+      await connectProfile(id);
       return null;
     });
     window.bind("connectLocal", async () => {
@@ -280,8 +329,10 @@ async function startDesktopWithShellServer(
   function unbindShell(): void {
     if (!shellBindingsActive) return;
     window.unbind("bootstrap");
-    window.unbind("getReconnectState");
+    window.unbind("getRemoteConnectionState");
     window.unbind("cancelReconnect");
+    window.unbind("retryDshConnection");
+    window.unbind("cancelDshConnection");
     window.unbind("saveProfile");
     window.unbind("deleteProfile");
     window.unbind("setModePreference");
@@ -312,182 +363,311 @@ async function startDesktopWithShellServer(
     }
   }
 
+  function getRemoteConnectionState() {
+    return {
+      reconnect: reconnectState ?? null,
+      dsh: dshState ?? null,
+      remoteActive: Boolean(
+        remote && (remote.tunnel || remote.sshTask || remote.dshTask || remote.observerTask),
+      ),
+    };
+  }
+
+  function ownsRemote(owner: RemoteConnection): boolean {
+    return remote === owner && owner.generation === remoteGeneration &&
+      !shuttingDown && !window.isClosed();
+  }
+
+  // Serialize persistence, not process supervision. Cancellation waits for any
+  // already-authorized recovery write before a user's edit/delete can run.
+  function writeProfiles<T>(write: () => Promise<T>): Promise<T> {
+    const task = profileWriteTask.catch(() => undefined).then(write);
+    profileWriteTask = task;
+    return task;
+  }
+
   async function connectProfile(id: unknown): Promise<void> {
     if (shuttingDown) throw new Error("应用正在退出");
-    if (connecting) throw new Error("已有连接正在建立，请稍候");
     if (typeof id !== "string") throw new Error("服务器 ID 无效");
-    connecting = true;
-    const controller = new AbortController();
-    remoteStartController = controller;
-    try {
-      await cancelReconnect();
-      const { ssh } = await environmentReady;
-      controller.signal.throwIfAborted();
-      if (!ssh.available) throw new Error(ssh.installHelp ?? "未找到 OpenSSH Client");
-      const profile = store.get(id);
-      if (!profile) throw new Error("服务器配置不存在或已被删除");
-      try {
-        await store.markUsed(id);
-      } catch (error) {
-        logger.warn(
-          { event: "profiles.last_used_failed", profileId: id, err: error },
-          "Could not persist the last used server profile",
-        );
-      }
-      if (activeLocal) {
-        await activeLocal.stop();
-        activeLocal = undefined;
-      }
-      if (activeTunnel) {
-        const previous = activeTunnel;
-        activeTunnel = undefined;
-        await previous.stop();
-      }
-      controller.signal.throwIfAborted();
-      const tunnel = await openRemoteTunnel(profile, controller.signal);
-      await activateTunnel(tunnel, profile, controller.signal);
-    } catch (error) {
-      if (controller.signal.aborted) throw error;
-      logger.error({
-        event: "ssh.connect_failed",
-        profileId: id,
-        err: error,
-      }, "Failed to connect a server profile");
-      if (error instanceof TunnelError) throw error;
-      throw new Error("连接失败，详细信息已写入日志");
-    } finally {
-      if (remoteStartController === controller) remoteStartController = undefined;
-      connecting = false;
+    const profile = store.get(id);
+    if (!profile) throw new Error("服务器配置不存在或已被删除");
+    const request = ++remoteRequest;
+    const current = remote;
+    if (
+      current && ownsRemote(current) && current.tunnel && sameEndpoint(current.profile, profile)
+    ) {
+      current.profile = profile;
+      startDshConnection(current);
+      return;
     }
-  }
-
-  async function openRemoteTunnel(profile: ServerProfile, signal: AbortSignal): Promise<SshTunnel> {
-    let recovered: Awaited<ReturnType<typeof recoverRemoteDshWebToken>>;
-    const tunnel = await startSshTunnel(profile, logger, {
-      spawn: spawnChild,
-      signal,
-      recoverToken: async ({ localPort }) => {
-        const candidate = await recoverRemoteDshWebToken(profile, localPort, { signal });
-        if (signal.aborted) return undefined;
-        recovered = candidate;
-        return candidate;
-      },
-    });
-    // Persist outside the cancellable probe callback: a late probe must never
-    // resurrect a deleted profile or overwrite an edited token after cancellation.
-    if (recovered && !signal.aborted) {
-      try {
-        await store.save({ ...profile, dshWebToken: recovered.token });
-        logger.info({
-          event: "profiles.dsh_token_recovered",
-          profileId: profile.id,
-          sourceId: recovered.sourceId,
-        }, "Recovered remote DSH Web token was saved");
-      } catch (error) {
-        logger.warn({
-          event: "profiles.dsh_token_recovered_save_failed",
-          profileId: profile.id,
-          sourceId: recovered.sourceId,
-          err: error,
-        }, "Recovered remote DSH Web token could not be saved");
-      }
-    }
-    if (signal.aborted) {
-      await tunnel.stop();
-      signal.throwIfAborted();
-    }
-    return tunnel;
-  }
-
-  async function activateTunnel(
-    tunnel: SshTunnel,
-    profile: ServerProfile,
-    signal: AbortSignal,
-  ): Promise<void> {
-    if (signal.aborted || shuttingDown || window.isClosed()) {
-      await tunnel.stop();
-      throw new DOMException("Connection cancelled", "AbortError");
-    }
-    activeTunnel = tunnel;
-    // The DSH Web page must not inherit privileged bindings from the local selector.
-    unbindShell();
-    try {
-      window.navigate(tunnel.url);
-    } catch (error) {
-      bindShell();
-      activeTunnel = undefined;
-      await tunnel.stop();
-      throw error;
-    }
-    startupNotice = undefined;
-    reconnectState = undefined;
-    void observeTunnel(tunnel, profile);
-  }
-
-  async function cancelReconnect(): Promise<void> {
-    const controller = reconnectController;
-    const task = reconnectTask;
-    reconnectController = undefined;
-    controller?.abort();
-    await task;
-    if (reconnectTask === task) {
-      reconnectTask = undefined;
-      reconnectState = undefined;
-    }
-  }
-
-  function beginReconnect(profile: ServerProfile): void {
-    const controller = new AbortController();
-    reconnectController = controller;
-    const onProgress = (progress: SshReconnectProgress) => {
-      if (reconnectController !== controller) return;
-      const prefix = `与“${profile.name}”的连接已断开。`;
-      reconnectState = {
-        profileId: profile.id,
-        profileName: profile.name,
-        active: true,
-        message: progress.phase === "waiting"
-          ? `${prefix}${
-            progress.delayMs / 1000
-          } 秒后自动重连（${progress.attempt}/${progress.maxAttempts}）`
-          : `${prefix}正在重连（${progress.attempt}/${progress.maxAttempts}）…`,
-      };
+    await stopRemote();
+    if (request !== remoteRequest || shuttingDown || window.isClosed()) return;
+    localStartController?.abort();
+    await connectionTask?.catch(() => undefined);
+    if (request !== remoteRequest || shuttingDown || window.isClosed()) return;
+    const owner: RemoteConnection = {
+      profile,
+      generation: ++remoteGeneration,
+      dshGeneration: 0,
     };
-    reconnectTask = (async () => {
+    remote = owner;
+    await startSshConnection(owner);
+  }
+
+  function startSshConnection(owner: RemoteConnection, exitFailure?: TunnelError): Promise<void> {
+    const controller = new AbortController();
+    owner.sshController = controller;
+    reconnectState = {
+      profileId: owner.profile.id,
+      profileName: owner.profile.name,
+      active: true,
+      message: exitFailure
+        ? `SSH 进程已退出：${exitFailure.message}。1 秒后重新启动…`
+        : "正在启动 SSH 进程…",
+      ...(exitFailure ? { errorCode: exitFailure.code } : {}),
+    };
+    const task = Promise.resolve().then(async () => {
       try {
-        const tunnel = await reconnectSshTunnel(profile, logger, {
+        if (exitFailure) {
+          await waitForSshReplacement(controller.signal);
+        } else {
+          const { ssh } = await environmentReady;
+          controller.signal.throwIfAborted();
+          if (!ssh.available) {
+            throw new TunnelError("SSH_NOT_FOUND", ssh.installHelp ?? "未找到 OpenSSH Client");
+          }
+          await writeProfiles(async () => {
+            if (!ownsRemote(owner) || controller.signal.aborted) return;
+            try {
+              await store.markUsed(owner.profile.id);
+            } catch (error) {
+              logger.warn(
+                { event: "profiles.last_used_failed", err: error },
+                "Could not save last profile",
+              );
+            }
+          });
+          if (activeLocal) {
+            const previous = activeLocal;
+            activeLocal = undefined;
+            await previous.stop();
+          }
+        }
+        controller.signal.throwIfAborted();
+        const profile = store.get(owner.profile.id);
+        if (!profile || !sameEndpoint(owner.profile, profile) || !ownsRemote(owner)) return;
+        owner.profile = profile;
+        const tunnel = await startSshTunnel(profile, logger, {
+          spawn: spawnChild,
           signal: controller.signal,
-          onProgress,
-          start: (signal) => {
-            const current = store.get(profile.id);
-            if (!current) throw new Error("服务器配置已被删除");
-            return openRemoteTunnel(current, signal);
-          },
         });
-        await activateTunnel(tunnel, profile, controller.signal);
-        logger.info({ event: "ssh.reconnected", profileId: profile.id }, "SSH connection restored");
-      } catch (error) {
-        if (controller.signal.aborted || reconnectController !== controller) return;
-        const detail = error instanceof TunnelError ? error.message : "详细信息已写入日志";
+        if (!ownsRemote(owner) || controller.signal.aborted) {
+          await tunnel.stop();
+          return;
+        }
+        owner.tunnel = tunnel;
+        // Observe the managed process before starting ANY independent DSH work.
+        const observer = observeTunnel(owner, tunnel).finally(() => {
+          if (owner.observerTask === observer) owner.observerTask = undefined;
+        });
+        owner.observerTask = observer;
         reconnectState = {
+          profileId: owner.profile.id,
+          profileName: owner.profile.name,
+          active: false,
+          message: "SSH 进程正在运行",
+        };
+        startDshConnection(owner);
+      } catch (error) {
+        if (!ownsRemote(owner) || controller.signal.aborted) return;
+        reportSshFailure(owner, error);
+      } finally {
+        if (owner.sshController === controller) {
+          owner.sshController = undefined;
+          owner.sshTask = undefined;
+        }
+      }
+    });
+    owner.sshTask = task;
+    return task;
+  }
+
+  function reportSshFailure(owner: RemoteConnection, error: unknown): void {
+    reconnectState = {
+      profileId: owner.profile.id,
+      profileName: owner.profile.name,
+      active: false,
+      message: `SSH 进程连接已停止：${
+        error instanceof TunnelError ? error.message : "详细信息已写入日志"
+      }。请检查后手动重试。`,
+      ...(error instanceof TunnelError ? { errorCode: error.code } : {}),
+    };
+    logger.warn({
+      event: "ssh.connection_stopped",
+      profileId: owner.profile.id,
+      errorCode: error instanceof TunnelError ? error.code : "UNKNOWN",
+    }, "SSH process connection stopped");
+  }
+
+  function startDshConnection(owner: RemoteConnection): void {
+    if (!ownsRemote(owner) || !owner.tunnel) return;
+    const tunnel = owner.tunnel;
+    const savedProfile = store.get(owner.profile.id);
+    if (!savedProfile || !sameEndpoint(owner.profile, savedProfile)) return;
+    let profile: ServerProfile = savedProfile;
+    const previous = owner.dshTask;
+    owner.dshController?.abort();
+    const controller = new AbortController();
+    const generation = ++owner.dshGeneration;
+    owner.dshController = controller;
+    owner.profile = profile;
+    const isCurrent = () => {
+      const saved = store.get(owner.profile.id);
+      return ownsRemote(owner) && owner.tunnel === tunnel &&
+        owner.dshGeneration === generation && !controller.signal.aborted &&
+        saved !== undefined && sameProfile(saved, profile);
+    };
+    dshState = {
+      profileId: profile.id,
+      profileName: profile.name,
+      active: true,
+      message: "SSH 进程正在运行，正在检查 DSH Web…",
+    };
+    const task = Promise.resolve().then(async () => {
+      try {
+        await previous;
+        if (!isCurrent()) return;
+        const result = await connectDshWeb(profile, tunnel.localPort, {
+          signal: controller.signal,
+        });
+        if (!isCurrent()) return;
+        if (result.recovered) {
+          const recovered = result.recovered;
+          await writeProfiles(async () => {
+            if (!isCurrent()) return;
+            try {
+              profile = { ...profile, dshWebToken: recovered.token };
+              await store.save(profile);
+              if (isCurrent()) owner.profile = profile;
+              logger.info({
+                event: "profiles.dsh_token_recovered",
+                profileId: profile.id,
+                sourceId: recovered.sourceId,
+              }, "Confirmed remote DSH Web token was saved");
+            } catch (error) {
+              logger.warn(
+                { event: "profiles.dsh_token_recovered_save_failed", err: error },
+                "Could not save recovered token",
+              );
+            }
+          });
+        }
+        if (!isCurrent()) return;
+        // Remote content must never receive selector/configuration bindings.
+        unbindShell();
+        try {
+          window.navigate(result.url);
+        } catch {
+          showShell();
+          throw new DshConnectionError(
+            "DSH_UNAVAILABLE",
+            "DSH Web 页面无法打开，请重试；SSH 进程仍在运行",
+          );
+        }
+        startupNotice = undefined;
+        dshState = {
           profileId: profile.id,
           profileName: profile.name,
           active: false,
-          message: `与“${profile.name}”的自动重连已停止：${detail}。请检查后手动重试。`,
-          ...(error instanceof TunnelError ? { errorCode: error.code } : {}),
+          message: "DSH Web 已连接",
+        };
+      } catch (error) {
+        if (!isCurrent()) return;
+        dshState = {
+          profileId: profile.id,
+          profileName: profile.name,
+          active: false,
+          message: error instanceof DshConnectionError
+            ? error.message
+            : "DSH Web 检查失败；SSH 进程仍在运行，请重试",
+          errorCode: error instanceof DshConnectionError ? error.code : "DSH_UNAVAILABLE",
         };
         logger.warn({
-          event: "ssh.reconnect_stopped",
+          event: "dsh.connection_failed",
           profileId: profile.id,
-          errorCode: error instanceof TunnelError ? error.code : "UNKNOWN",
-        }, "Automatic SSH reconnection stopped");
+          errorCode: dshState.errorCode,
+        }, "DSH check failed; SSH supervision remains active");
       } finally {
-        if (reconnectController === controller) {
-          reconnectController = undefined;
-          reconnectTask = undefined;
+        if (owner.dshGeneration === generation) {
+          owner.dshController = undefined;
+          owner.dshTask = undefined;
         }
       }
-    })();
+    });
+    owner.dshTask = task;
+  }
+
+  async function cancelDshConnection(owner: RemoteConnection): Promise<void> {
+    const generation = ++owner.dshGeneration;
+    const task = owner.dshTask;
+    owner.dshController?.abort();
+    if (ownsRemote(owner)) {
+      dshState = owner.tunnel
+        ? {
+          profileId: owner.profile.id,
+          profileName: owner.profile.name,
+          active: false,
+          message: "DSH Web 检查已取消；SSH 进程仍在运行，可重试",
+        }
+        : undefined;
+    }
+    await task;
+    if (owner.dshGeneration === generation) {
+      owner.dshController = undefined;
+      owner.dshTask = undefined;
+    }
+  }
+
+  async function cancelReconnect(): Promise<void> {
+    ++remoteRequest;
+    await stopRemote();
+  }
+
+  function stopRemote(): Promise<void> {
+    if (remoteStopTask) return remoteStopTask;
+    const owner = remote;
+    if (!owner) return Promise.resolve();
+    // Keep the owner discoverable until all cleanup completes. Concurrent edits,
+    // deletes and stops must join this cleanup instead of bypassing it.
+    ++remoteGeneration;
+    owner.sshController?.abort();
+    const dshCleanup = cancelDshConnection(owner);
+    const task = Promise.resolve().then(async () => {
+      await Promise.all([owner.sshTask, dshCleanup, owner.tunnel?.stop()]);
+      await owner.observerTask;
+      if (remote === owner) {
+        remote = undefined;
+        reconnectState = undefined;
+        dshState = undefined;
+      }
+    }).finally(() => {
+      if (remoteStopTask === task) remoteStopTask = undefined;
+    });
+    remoteStopTask = task;
+    return task;
+  }
+
+  function showShell(): void {
+    if (shuttingDown || window.isClosed()) return;
+    bindShell();
+    try {
+      window.navigate(shellUrl);
+    } catch (error) {
+      logger.warn(
+        { event: "shell.navigation_failed", err: error },
+        "Could not show the connection selector",
+      );
+    }
   }
 
   async function connectLocal(): Promise<void> {
@@ -502,10 +682,6 @@ async function startDesktopWithShellServer(
       ({ localDshLauncher } = await environmentReady);
       if (controller.signal.aborted) throw new LocalDshError("START_CANCELLED", "启动已取消");
       if (!localDshLauncher) throw localDshInstallError();
-      if (activeTunnel) {
-        await activeTunnel.stop();
-        activeTunnel = undefined;
-      }
       if (activeLocal) {
         await activeLocal.stop();
         activeLocal = undefined;
@@ -561,7 +737,7 @@ async function startDesktopWithShellServer(
     }
   }
 
-  async function observeTunnel(tunnel: SshTunnel, profile: ServerProfile): Promise<void> {
+  async function observeTunnel(owner: RemoteConnection, tunnel: SshTunnel): Promise<void> {
     const exit = await tunnel.exited;
     logger[exit.stopRequested ? "info" : "warn"]({
       event: "ssh.tunnel_exited",
@@ -571,21 +747,37 @@ async function startDesktopWithShellServer(
       childOutputFile: tunnel.outputFile,
       ...(exit.error ? { err: exit.error } : {}),
     }, exit.stopRequested ? "SSH tunnel stopped" : "SSH tunnel exited unexpectedly");
+    if (exit.stopRequested || !ownsRemote(owner) || owner.tunnel !== tunnel) return;
 
-    if (exit.stopRequested) return;
-    if (activeTunnel !== tunnel) return;
-    if (shuttingDown || window.isClosed()) return;
-
-    const detail = lastOutputLine(await readProcessOutputTail(tunnel.outputFile));
-    // Reading the log can overlap shutdown or a new connection request.
-    if (activeTunnel !== tunnel || shuttingDown || window.isClosed() || connecting) return;
-    activeTunnel = undefined;
-    startupNotice = detail
-      ? `与“${profile.name}”的 SSH 连接已断开：${detail}`
-      : `与“${profile.name}”的 SSH 连接已断开。`;
-    bindShell();
-    window.navigate(shellUrl);
-    beginReconnect(profile);
+    // Invalidate DSH results immediately, before log IO or auxiliary-process
+    // cleanup. Login failure, a pending HTTP check, and manual DSH cancellation
+    // have no bearing on whether this real process exit gets supervised.
+    owner.tunnel = undefined;
+    const previousStart = owner.sshTask;
+    const dshCleanup = cancelDshConnection(owner);
+    reconnectState = {
+      profileId: owner.profile.id,
+      profileName: owner.profile.name,
+      active: true,
+      message: "SSH 进程已退出，正在清理 DSH 检查并准备恢复…",
+    };
+    showShell();
+    const [detail] = await Promise.all([
+      readProcessOutputTail(tunnel.outputFile).catch(() => ""),
+      dshCleanup,
+      previousStart,
+    ]);
+    if (!ownsRemote(owner)) return;
+    const failure = classifySshFailure(detail, exit.error);
+    // The process wrapper reports asynchronous creation errors separately from
+    // a real close status. Surface those for manual action, without a spawn loop.
+    if (exit.error) {
+      reportSshFailure(owner, failure);
+      return;
+    }
+    // Classification is diagnostic only. Every unexpected exit follows the
+    // same replacement rule; no DSH result can reach this entry point.
+    void startSshConnection(owner, failure);
   }
 
   async function observeLocal(local: LocalDshWeb): Promise<void> {
@@ -615,16 +807,12 @@ async function startDesktopWithShellServer(
     shuttingDown = true;
     logger.info({ event: "app.shutdown" }, "DSH Desktop is shutting down");
     localStartController?.abort();
-    remoteStartController?.abort();
     await cancelReconnect();
     await connectionTask?.catch(() => undefined);
+    await profileWriteTask.catch(() => undefined);
     localStartController = undefined;
-    remoteStartController = undefined;
-    const tunnel = activeTunnel;
     const local = activeLocal;
-    activeTunnel = undefined;
     activeLocal = undefined;
-    await tunnel?.stop();
     await local?.stop();
     await shellServer.shutdown();
     releaseWindowIcon?.();
@@ -634,6 +822,33 @@ async function startDesktopWithShellServer(
     closeAllowed = true;
     if (!window.isClosed()) window.close();
   }
+}
+
+// Only a real, unexpected process exit schedules this short, cancellable wait.
+function waitForSshReplacement(signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      reject(new DOMException("SSH replacement cancelled", "AbortError"));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, 1_000);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function sameEndpoint(left: ServerProfile, right: ServerProfile): boolean {
+  return left.id === right.id && left.sshTarget === right.sshTarget &&
+    left.remotePort === right.remotePort;
+}
+
+function sameProfile(left: ServerProfile, right: ServerProfile): boolean {
+  return sameEndpoint(left, right) && left.name === right.name &&
+    left.dshWebToken === right.dshWebToken;
 }
 
 function lastOutputLine(detail?: string): string | undefined {
