@@ -45,6 +45,13 @@ Deno.test("posixRemoteDshTokenProbeProgram imports the maintained shell script",
   assertStringIncludes(program.stdin ?? "", "proc-fd-log");
 });
 
+Deno.test("POSIX remote token probe joins tmux soft-wrapped token lines", () => {
+  assertStringIncludes(
+    POSIX_REMOTE_DSH_TOKEN_PROBE_SCRIPT,
+    'tmux capture-pane -p -J -S -2000 -t "$pane"',
+  );
+});
+
 Deno.test("posixRemoteDshTokenProbeProgram accepts a script override for tests", () => {
   assertEquals(posixRemoteDshTokenProbeProgram("custom script").stdin, "custom script");
 });

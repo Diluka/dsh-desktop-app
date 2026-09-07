@@ -1,3 +1,4 @@
+import { setTimeout as delay } from "node:timers/promises";
 import { resolveAppPaths } from "./src/app_paths.ts";
 import { BUILD_COMMIT } from "./src/build_info.ts";
 import { readProcessOutputTail, spawnHiddenProcess } from "./src/hidden_process.ts";
@@ -288,8 +289,10 @@ async function startDesktopWithShellServer(
     if (shuttingDown || window.isClosed()) return;
     if (connecting) throw new Error("已有连接正在建立，请稍候");
     connecting = true;
+    remoteStartController?.abort();
     const controller = new AbortController();
     remoteStartController = controller;
+    let observedTunnel = activeTunnel?.matches(profile) ? activeTunnel : undefined;
     try {
       try {
         await store.markUsed(id);
@@ -310,7 +313,7 @@ async function startDesktopWithShellServer(
         signal: controller.signal,
         onTunnel: (tunnel) => {
           activeTunnel = tunnel;
-          void observeTunnel(tunnel, profile.name);
+          observedTunnel = tunnel;
         },
         recoverToken: async ({ localPort }) => {
           const recovered = await recoverRemoteDshWebToken(profile, localPort);
@@ -355,8 +358,12 @@ async function startDesktopWithShellServer(
       if (error instanceof TunnelError) throw error;
       throw new Error("连接失败，详细信息已写入日志");
     } finally {
-      if (remoteStartController === controller) remoteStartController = undefined;
       connecting = false;
+      // Let startup (including local-port retries) settle before observing its final child.
+      // Reattach on live reuse, but never replay a leftover exit after a spawn failure.
+      if (observedTunnel && activeTunnel === observedTunnel && !controller.signal.aborted) {
+        void observeTunnel(observedTunnel, profile.id, profile.name, controller.signal);
+      }
     }
   }
 
@@ -366,6 +373,8 @@ async function startDesktopWithShellServer(
     if (!localDshLauncher) throw localDshInstallError();
     if (shuttingDown || window.isClosed()) return;
     if (connecting) throw new Error("已有连接正在建立，请稍候");
+    remoteStartController?.abort();
+    remoteStartController = undefined;
     const controller = new AbortController();
     localStartController = controller;
     connecting = true;
@@ -425,8 +434,14 @@ async function startDesktopWithShellServer(
     }
   }
 
-  async function observeTunnel(tunnel: SshTunnel, profileName: string): Promise<void> {
+  async function observeTunnel(
+    tunnel: SshTunnel,
+    profileId: string,
+    profileName: string,
+    signal: AbortSignal,
+  ): Promise<void> {
     const exit = await tunnel.exited;
+    if (signal.aborted) return;
     logger[exit.stopRequested ? "info" : "warn"]({
       event: "ssh.tunnel_exited",
       code: exit.code,
@@ -441,13 +456,30 @@ async function startDesktopWithShellServer(
     if (shuttingDown || window.isClosed()) return;
 
     const detail = lastOutputLine(await readProcessOutputTail(tunnel.outputFile));
-    if (activeTunnel !== tunnel || connecting || shuttingDown || window.isClosed()) return;
-    activeTunnel = undefined;
+    if (
+      signal.aborted || activeTunnel !== tunnel || connecting || shuttingDown || window.isClosed()
+    ) return;
     startupNotice = detail
       ? `与“${profileName}”的 SSH 连接已断开：${detail}`
       : `与“${profileName}”的 SSH 连接已断开，请检查网络后重试。`;
     bindShell();
     window.navigate(shellUrl);
+
+    if (!await waitForSshReconnect(tunnel, signal)) return;
+    if (
+      signal.aborted || activeTunnel !== tunnel || connecting || shuttingDown ||
+      window.isClosed() ||
+      !store.get(profileId)
+    ) return;
+    try {
+      await connectProfile(profileId);
+    } catch (error) {
+      // DSH errors keep the live SSH child. Only its own later exit can retry again.
+      if (shuttingDown || window.isClosed()) return;
+      startupNotice = error instanceof Error ? error.message : String(error);
+      bindShell();
+      window.navigate(shellUrl);
+    }
   }
 
   async function observeLocal(local: LocalDshWeb): Promise<void> {
@@ -494,6 +526,22 @@ async function startDesktopWithShellServer(
     closeAllowed = true;
     if (!window.isClosed()) window.close();
   }
+}
+
+// This gate consumes only actual child exits, never HTTP/login/token failures.
+export async function waitForSshReconnect(
+  tunnel: Pick<SshTunnel, "exited">,
+  signal: AbortSignal,
+): Promise<boolean> {
+  const exit = await tunnel.exited;
+  if (exit.stopRequested || signal.aborted) return false;
+  try {
+    await delay(1_000, undefined, { signal });
+  } catch (error) {
+    if (signal.aborted) return false;
+    throw error;
+  }
+  return !signal.aborted;
 }
 
 function lastOutputLine(detail?: string): string | undefined {
