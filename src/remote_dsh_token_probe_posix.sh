@@ -11,7 +11,7 @@ dsh_desktop_probe_tmux() {
   if command -v tmux >/dev/null 2>&1; then
     tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_index}' 2>/dev/null |
       while IFS= read -r pane; do
-        tmux capture-pane -p -S -2000 -t "$pane" 2>/dev/null
+        tmux capture-pane -p -J -S -2000 -t "$pane" 2>/dev/null
       done
   fi
 }
