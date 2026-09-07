@@ -1,5 +1,12 @@
 import { join } from "node:path";
-import { assert, assertEquals, assertFalse, assertStringIncludes } from "@std/assert";
+import { kill as signalProcess } from "node:process";
+import {
+  assert,
+  assertEquals,
+  assertFalse,
+  assertRejects,
+  assertStringIncludes,
+} from "@std/assert";
 import {
   isCommandNotFoundError,
   readProcessOutputTail,
@@ -139,7 +146,88 @@ Deno.test("spawnHiddenProcess kill terminates the process tree on Windows", asyn
   assertFalse(alive, "the descendant process is still running");
 });
 
+Deno.test("runHiddenCommand pre-cancellation does not spawn", async () => {
+  const controller = new AbortController();
+  controller.abort(new Error("custom cancellation reason"));
+  const error = await assertRejects(() =>
+    runHiddenCommand(`missing-${crypto.randomUUID()}`, [], {
+      signal: controller.signal,
+    }), DOMException);
+  assertEquals(error.name, "AbortError");
+});
+
+Deno.test("runHiddenCommand cancellation waits until its real child has exited", async () => {
+  const controller = new AbortController();
+  const started = Promise.withResolvers<number>();
+  const server = Deno.serve(
+    { hostname: "127.0.0.1", port: 0, onListen: () => {} },
+    async (request) => {
+      started.resolve(Number(await request.text()));
+      return new Response("ready");
+    },
+  );
+  const url = `http://127.0.0.1:${server.addr.port}`;
+  const result = runHiddenCommand(Deno.execPath(), [
+    "eval",
+    `
+    await fetch(${JSON.stringify(url)}, { method: "POST", body: String(Deno.pid) });
+    setInterval(() => {}, 1000);
+  `,
+  ], { signal: controller.signal, timeoutMilliseconds: 5_000 });
+  try {
+    const pid = await Promise.race([
+      started.promise,
+      result.then(() => {
+        throw new Error("fixture exited before reporting its PID");
+      }),
+    ]);
+    assert(await processExists(pid));
+    const rejected = assertRejects(() => result, DOMException);
+    controller.abort(new Error("cancel the probe"));
+    assertEquals((await rejected).name, "AbortError");
+    assertFalse(await processExists(pid), "cancellation returned before the child exited");
+  } finally {
+    controller.abort();
+    await result.catch(() => undefined);
+    await server.shutdown();
+  }
+});
+
+Deno.test("runHiddenCommand removes cancellation listeners on success and command failure", async () => {
+  const controller = new AbortController();
+  let listeners = 0;
+  const add = controller.signal.addEventListener.bind(controller.signal);
+  const remove = controller.signal.removeEventListener.bind(controller.signal);
+  controller.signal.addEventListener = (...args: Parameters<AbortSignal["addEventListener"]>) => {
+    if (args[0] === "abort") listeners++;
+    add(...args);
+  };
+  controller.signal.removeEventListener = (
+    ...args: Parameters<AbortSignal["removeEventListener"]>
+  ) => {
+    if (args[0] === "abort") listeners--;
+    remove(...args);
+  };
+  assertEquals(
+    (await runHiddenCommand(Deno.execPath(), ["eval", ""], { signal: controller.signal })).success,
+    true,
+  );
+  assertEquals(listeners, 0);
+  await assertRejects(() =>
+    runHiddenCommand(`missing-${crypto.randomUUID()}`, [], { signal: controller.signal })
+  );
+  assertEquals(listeners, 0);
+});
+
 async function processExists(pid: number): Promise<boolean> {
+  if (Deno.build.os !== "windows") {
+    try {
+      signalProcess(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
   const output = await runHiddenCommand("tasklist", ["/fi", `PID eq ${pid}`, "/nh"]);
   return output.stdout.includes(String(pid));
 }

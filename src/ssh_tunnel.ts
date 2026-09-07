@@ -50,6 +50,7 @@ export interface RecoveredDshWebToken {
 }
 
 interface StartTunnelOptions {
+  readonly signal?: AbortSignal;
   readonly command?: string;
   readonly startupTimeoutMs?: number;
   readonly allocatePort?: () => Promise<number>;
@@ -123,9 +124,16 @@ export async function startSshTunnel(
   options: StartTunnelOptions,
 ): Promise<SshTunnel> {
   for (let attempt = 1; attempt <= MAX_LOCAL_PORT_ATTEMPTS; attempt++) {
+    throwIfAborted(options.signal);
     try {
-      return await startTunnelAttempt(profile, logger, options);
+      const tunnel = await startTunnelAttempt(profile, logger, options);
+      if (options.signal?.aborted) {
+        await tunnel.stop();
+        throwIfAborted(options.signal);
+      }
+      return tunnel;
     } catch (error) {
+      throwIfAborted(options.signal);
       if (!(error instanceof TunnelError) || error.code !== "LOCAL_PORT_BUSY") throw error;
       logger.warn({
         event: "ssh.local_port_retry",
@@ -147,14 +155,18 @@ async function startTunnelAttempt(
   const spawn = options.spawn;
   const probe = options.probe ?? ((url) =>
     probeHttp(url, {
+      signal: options.signal,
       accept: "text/html",
       validateStatus: () => true,
     }));
   const delay = options.delay ?? sleep;
   const now = options.now ?? Date.now;
   const startupTimeoutMs = options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS;
-  const localPort = await allocatePort();
+  const signal = options.signal;
+  const localPort = await waitForStartup(allocatePort, signal);
+  throwIfAborted(signal);
   const args = buildSshArguments(profile, localPort);
+  const url = loopbackDshWebUrl(localPort, profile.dshWebToken);
 
   logger.info({
     event: "ssh.tunnel_starting",
@@ -165,6 +177,7 @@ async function startTunnelAttempt(
 
   let child: ManagedHiddenProcess;
   try {
+    throwIfAborted(signal);
     child = spawn(command, args);
   } catch (error) {
     if (isCommandNotFoundError(error)) {
@@ -173,106 +186,136 @@ async function startTunnelAttempt(
     throw error;
   }
 
-  const tunnel = new SshTunnel(loopbackDshWebUrl(localPort, profile.dshWebToken), child, delay);
-  let tokenRecoveryAttempted = false;
-  const exitOutcome = tunnel.exited.then((value) => ({
-    kind: "exit" as const,
-    value,
-  }));
-
-  async function failureFromExit(exit: TunnelExit): Promise<TunnelError> {
-    const detail = await readProcessOutputTail(tunnel.outputFile);
-    const error = classifySshFailure(detail, exit.error);
-    logger.warn({
-      event: "ssh.tunnel_failed",
-      profileId: profile.id,
-      errorCode: error.code,
-      childExitCode: exit.code,
-      childSignal: exit.signal,
-      childOutputFile: tunnel.outputFile,
-      ...(exit.error ? { err: exit.error } : {}),
-    }, "OpenSSH tunnel failed");
-    return error;
-  }
-
-  const startedAt = now();
-  while (now() - startedAt < startupTimeoutMs) {
-    const outcome = await Promise.race([
-      exitOutcome,
-      probe(tunnel.url).then(
-        (status) => probeOutcome(status),
-        () => ({ kind: "retry" as const }),
-      ),
-    ]);
-    if (outcome.kind === "exit") throw await failureFromExit(outcome.value);
-    if (outcome.kind === "login_required") {
-      if (!tokenRecoveryAttempted && options.recoverToken) {
-        tokenRecoveryAttempted = true;
-        try {
-          const recovered = await options.recoverToken({
-            profile,
-            localPort,
-            currentUrl: tunnel.url,
-          });
-          if (recovered) {
-            tunnel.useDshWebToken(localPort, recovered.token);
-            logger.info({
-              event: "ssh.dsh_token_recovered",
-              profileId: profile.id,
-              childOutputFile: tunnel.outputFile,
-              startupMs: Math.max(0, now() - startedAt),
-              sourceId: recovered.sourceId ?? "unknown",
-            }, "Recovered remote DSH Web launch token");
-            return tunnel;
-          }
-        } catch (error) {
-          logger.warn({
-            event: "ssh.dsh_token_recovery_failed",
-            profileId: profile.id,
-            err: error,
-          }, "Remote DSH Web token recovery failed");
-        }
+  let tunnel: SshTunnel | undefined;
+  try {
+    tunnel = new SshTunnel(url, child, delay);
+    return await waitUntilReady(tunnel);
+  } catch (error) {
+    try {
+      if (tunnel) await tunnel.stop();
+      else child.kill("SIGKILL");
+    } catch {
+      // A failing injected delay must not leave the startup child running.
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // It may already have exited.
       }
-      await tunnel.stop();
-      logger.warn({
-        event: "ssh.dsh_login_required",
-        profileId: profile.id,
-        childOutputFile: tunnel.outputFile,
-        startupMs: Math.max(0, now() - startedAt),
-        status: outcome.status,
-      }, "Remote DSH Web requires a launch token");
-      throw new TunnelError(
-        "DSH_LOGIN_REQUIRED",
-        "远端 DSH Web 要求登录，请输入新的 token 后重试",
-      );
     }
-    if (outcome.kind === "ready") {
-      logger.info({
-        event: "ssh.tunnel_ready",
-        profileId: profile.id,
-        childOutputFile: tunnel.outputFile,
-        startupMs: Math.max(0, now() - startedAt),
-      }, "SSH tunnel and remote DSH Web are ready");
-      return tunnel;
-    }
-
-    const pause = await Promise.race([
-      exitOutcome,
-      delay(150).then(() => ({ kind: "retry" as const })),
-    ]);
-    if (pause.kind === "exit") throw await failureFromExit(pause.value);
+    await child.status.catch(() => undefined);
+    throwIfAborted(signal);
+    throw error;
   }
 
-  await tunnel.stop();
-  logger.warn({
-    event: "ssh.tunnel_unavailable",
-    profileId: profile.id,
-    childOutputFile: tunnel.outputFile,
-  }, "SSH tunnel did not become ready");
-  throw new TunnelError(
-    "DSH_UNAVAILABLE",
-    "SSH 已连接，但远端 DSH Web 未在限定时间内响应；请检查远端端口配置",
-  );
+  async function waitUntilReady(tunnel: SshTunnel): Promise<SshTunnel> {
+    throwIfAborted(signal);
+    let tokenRecoveryAttempted = false;
+    const exitOutcome = tunnel.exited.then((value) => ({
+      kind: "exit" as const,
+      value,
+    }));
+
+    async function failureFromExit(exit: TunnelExit): Promise<TunnelError> {
+      const detail = await waitForStartup(() => readProcessOutputTail(tunnel.outputFile), signal);
+      const error = classifySshFailure(detail, exit.error);
+      logger.warn({
+        event: "ssh.tunnel_failed",
+        profileId: profile.id,
+        errorCode: error.code,
+        childExitCode: exit.code,
+        childSignal: exit.signal,
+        childOutputFile: tunnel.outputFile,
+      }, "OpenSSH tunnel failed");
+      return error;
+    }
+
+    const startedAt = now();
+    while (now() - startedAt < startupTimeoutMs) {
+      const outcome = await waitForStartup(() =>
+        Promise.race([
+          exitOutcome,
+          probe(tunnel.url).then(
+            (status) => probeOutcome(status),
+            () => ({ kind: "retry" as const }),
+          ),
+        ]), signal);
+      throwIfAborted(signal);
+      if (outcome.kind === "exit") throw await failureFromExit(outcome.value);
+      if (outcome.kind === "login_required") {
+        if (!tokenRecoveryAttempted && options.recoverToken) {
+          tokenRecoveryAttempted = true;
+          try {
+            throwIfAborted(signal);
+            // The recovery callback owns another SSH process. Await its cleanup
+            // instead of racing cancellation and leaving that process behind.
+            const recovered = await options.recoverToken({
+              profile,
+              localPort,
+              currentUrl: tunnel.url,
+            });
+            throwIfAborted(signal);
+            if (recovered) {
+              tunnel.useDshWebToken(localPort, recovered.token);
+              logger.info({
+                event: "ssh.dsh_token_recovered",
+                profileId: profile.id,
+                childOutputFile: tunnel.outputFile,
+                startupMs: Math.max(0, now() - startedAt),
+                sourceId: recovered.sourceId ?? "unknown",
+              }, "Recovered remote DSH Web launch token");
+              return tunnel;
+            }
+          } catch (error) {
+            throwIfAborted(signal);
+            logger.warn({
+              event: "ssh.dsh_token_recovery_failed",
+              profileId: profile.id,
+              errorCode: error instanceof TunnelError ? error.code : "UNKNOWN",
+            }, "Remote DSH Web token recovery failed");
+          }
+        }
+        logger.warn({
+          event: "ssh.dsh_login_required",
+          profileId: profile.id,
+          childOutputFile: tunnel.outputFile,
+          startupMs: Math.max(0, now() - startedAt),
+          status: outcome.status,
+        }, "Remote DSH Web requires a launch token");
+        throw new TunnelError(
+          "DSH_LOGIN_REQUIRED",
+          "远端 DSH Web 要求登录，请输入新的 token 后重试",
+        );
+      }
+      if (outcome.kind === "ready") {
+        logger.info({
+          event: "ssh.tunnel_ready",
+          profileId: profile.id,
+          childOutputFile: tunnel.outputFile,
+          startupMs: Math.max(0, now() - startedAt),
+        }, "SSH tunnel and remote DSH Web are ready");
+        return tunnel;
+      }
+
+      const pause = await waitForStartup(() =>
+        Promise.race([
+          exitOutcome,
+          (options.delay ? delay(150) : sleep(150, signal)).then(() => ({
+            kind: "retry" as const,
+          })),
+        ]), signal);
+      if (pause.kind === "exit") throw await failureFromExit(pause.value);
+    }
+
+    logger.warn({
+      event: "ssh.tunnel_unavailable",
+      profileId: profile.id,
+      childOutputFile: tunnel.outputFile,
+    }, "SSH tunnel did not become ready");
+    throw new TunnelError(
+      "DSH_UNAVAILABLE",
+      "SSH 已连接，但远端 DSH Web 未在限定时间内响应；请检查远端端口配置",
+    );
+  }
 }
 
 function probeOutcome(status: number):
@@ -293,7 +336,11 @@ function classifySshFailure(detail: string, processError?: Error): TunnelError {
   if (isCommandNotFoundError(processError) || /\bENOENT\b|not found/iu.test(detail)) {
     return new TunnelError("SSH_NOT_FOUND", "未找到 OpenSSH Client，请先安装后重试");
   }
-  if (/permission denied|no more authentication methods/iu.test(detail)) {
+  if (
+    /permission denied|no more authentication methods|too many authentication failures/iu.test(
+      detail,
+    )
+  ) {
     return new TunnelError(
       "AUTH_FAILED",
       "SSH 认证失败；请检查 .ssh/config、密钥和 ssh-agent（首版不支持密码交互）",
@@ -316,6 +363,48 @@ function classifySshFailure(detail: string, processError?: Error): TunnelError {
   return new TunnelError("SSH_FAILED", "OpenSSH 隧道启动失败，详细信息已写入日志");
 }
 
-function sleep(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new DOMException("SSH startup cancelled", "AbortError");
+}
+
+async function waitForStartup<T>(operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  throwIfAborted(signal);
+  if (!signal) return await operation();
+  let onAbort!: () => void;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(new DOMException("SSH startup cancelled", "AbortError"));
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    const result = await Promise.race([
+      aborted,
+      Promise.resolve().then(() => {
+        throwIfAborted(signal);
+        return operation();
+      }),
+    ]);
+    throwIfAborted(signal);
+    return result;
+  } catch (error) {
+    throwIfAborted(signal);
+    throw error;
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+}
+
+function sleep(milliseconds: number, signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      reject(new DOMException("SSH startup cancelled", "AbortError"));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, milliseconds);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }

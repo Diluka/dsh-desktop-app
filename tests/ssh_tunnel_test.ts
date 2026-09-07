@@ -323,6 +323,252 @@ for (
   });
 }
 
+for (const stage of ["allocate", "probe", "delay", "recoverToken"] as const) {
+  Deno.test(`startSshTunnel cancels while waiting for ${stage} and ignores late results`, async () => {
+    const { logger } = await memoryLogger();
+    const controller = new AbortController();
+    const entered = Promise.withResolvers<void>();
+    const blocked = Promise.withResolvers<void>();
+    const child = fakeChild();
+    const kill = child.kill.bind(child);
+    child.kill = (signal) => {
+      kill(signal);
+      child.finish({ success: false, code: 143, signal: "SIGTERM" });
+    };
+    let spawns = 0;
+    let recoveries = 0;
+    const pause = () => {
+      entered.resolve();
+      return blocked.promise;
+    };
+    const result = startSshTunnel(profile(), logger, {
+      signal: controller.signal,
+      allocatePort: async () => {
+        if (stage === "allocate") await pause();
+        return 41009;
+      },
+      spawn: () => {
+        spawns++;
+        return child;
+      },
+      probe: async () => {
+        if (stage === "probe") await pause();
+        return stage === "recoverToken" ? 401 : stage === "delay" ? 503 : 200;
+      },
+      delay: (ms) => stage === "delay" && ms === 150 ? pause() : Promise.resolve(),
+      recoverToken: async () => {
+        recoveries++;
+        await pause();
+        return { token: "late-token" };
+      },
+      now: () => 1000,
+    });
+    let settled = false;
+    const rejected = assertRejects(() => result, DOMException).then((error) => {
+      settled = true;
+      return error;
+    });
+    await entered.promise;
+    controller.abort(new Error("arbitrary abort reason"));
+    if (stage === "recoverToken") {
+      // Recovery can own another SSH process, so cancellation awaits its cleanup.
+      await Promise.resolve();
+      assertFalse(settled);
+      blocked.resolve();
+    }
+    assertEquals((await rejected).name, "AbortError");
+    assertEquals(spawns, stage === "allocate" ? 0 : 1);
+    assertEquals(child.kills, stage === "allocate" ? [] : ["SIGTERM"]);
+    blocked.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    assertEquals(spawns, stage === "allocate" ? 0 : 1);
+    assertEquals(recoveries, stage === "recoverToken" ? 1 : 0);
+  });
+}
+
+Deno.test("startSshTunnel rejects already cancelled signals without allocating or spawning", async () => {
+  const { logger } = await memoryLogger();
+  const controller = new AbortController();
+  controller.abort();
+  let calls = 0;
+  const error = await assertRejects(() =>
+    startSshTunnel(profile(), logger, {
+      signal: controller.signal,
+      allocatePort: () => {
+        calls++;
+        return Promise.resolve(41000);
+      },
+      spawn: () => {
+        calls++;
+        return fakeChild();
+      },
+    }), DOMException);
+  assertEquals(error.name, "AbortError");
+  assertEquals(calls, 0);
+});
+
+Deno.test("startSshTunnel cancellation waits for child cleanup before rejecting", async () => {
+  const { logger } = await memoryLogger();
+  const controller = new AbortController();
+  const probing = Promise.withResolvers<void>();
+  const killed = Promise.withResolvers<void>();
+  const child = fakeChild();
+  const kill = child.kill.bind(child);
+  child.kill = (signal) => {
+    kill(signal);
+    killed.resolve();
+  };
+  let settled = false;
+  const result = startSshTunnel(profile(), logger, {
+    signal: controller.signal,
+    allocatePort: () => Promise.resolve(41000),
+    spawn: () => child,
+    probe: () => {
+      probing.resolve();
+      return new Promise(() => {});
+    },
+    delay: () => new Promise(() => {}),
+  });
+  const rejected = assertRejects(() => result, DOMException).then((error) => {
+    settled = true;
+    return error;
+  });
+  await probing.promise;
+  controller.abort();
+  await killed.promise;
+  await Promise.resolve();
+  assertFalse(settled);
+  assertEquals(child.kills, ["SIGTERM"]);
+  child.finish({ success: false, code: 143, signal: "SIGTERM" });
+  assertEquals((await rejected).name, "AbortError");
+});
+
+for (const stage of ["spawn", "probe", "recoverToken"] as const) {
+  Deno.test(`startSshTunnel cancellation wins simultaneous ${stage} success`, async () => {
+    const { logger } = await memoryLogger();
+    const controller = new AbortController();
+    const child = fakeChild();
+    const kill = child.kill.bind(child);
+    child.kill = (signal) => {
+      kill(signal);
+      child.finish({ success: false, code: 143, signal: "SIGTERM" });
+    };
+    let probes = 0;
+    const error = await assertRejects(() =>
+      startSshTunnel(profile(), logger, {
+        signal: controller.signal,
+        allocatePort: () => Promise.resolve(41000),
+        spawn: () => {
+          if (stage === "spawn") controller.abort();
+          return child;
+        },
+        probe: () => {
+          probes++;
+          if (stage === "probe") controller.abort();
+          return Promise.resolve(stage === "recoverToken" ? 401 : 200);
+        },
+        recoverToken: () => {
+          controller.abort();
+          return Promise.resolve({ token: "too-late" });
+        },
+        delay: () => Promise.resolve(),
+      }), DOMException);
+    assertEquals(error.name, "AbortError");
+    assertEquals(child.kills, ["SIGTERM"]);
+    assertEquals(probes, stage === "spawn" ? 0 : 1);
+  });
+}
+
+for (const stage of ["probe", "delay", "clock"] as const) {
+  Deno.test(`startSshTunnel cleans child on unexpected ${stage} exception`, async () => {
+    const { logger } = await memoryLogger();
+    const child = fakeChild();
+    const kill = child.kill.bind(child);
+    child.kill = (signal) => {
+      kill(signal);
+      if (signal === "SIGKILL") child.finish({ success: false, code: 137, signal: "SIGKILL" });
+    };
+    const failure = new Error("unexpected startup failure");
+    const error = await assertRejects(() =>
+      startSshTunnel(profile(), logger, {
+        allocatePort: () => Promise.resolve(41000),
+        spawn: () => child,
+        probe: () => {
+          if (stage === "probe") throw failure;
+          return Promise.resolve(503);
+        },
+        delay: () => {
+          if (stage === "delay") throw failure;
+          return Promise.resolve();
+        },
+        now: () => {
+          if (stage === "clock") throw failure;
+          return 1000;
+        },
+      })
+    );
+    assertEquals(error, failure);
+    assertEquals(child.kills, ["SIGTERM", "SIGKILL"]);
+  });
+}
+
+Deno.test("startSshTunnel keeps recovery errors and token URLs out of logs", async () => {
+  const { logger, filePath } = await memoryLogger();
+  const child = fakeChild();
+  child.kill = () => child.finish({ success: false, code: 143, signal: "SIGTERM" });
+  const error = await assertRejects(
+    () =>
+      startSshTunnel({ ...profile(), dshWebToken: "private-token" }, logger, {
+        allocatePort: () => Promise.resolve(41000),
+        spawn: () => child,
+        probe: () => Promise.resolve(401),
+        recoverToken: () => Promise.reject(new Error("http://127.0.0.1/?token=private-token")),
+        delay: () => Promise.resolve(),
+      }),
+    TunnelError,
+  );
+  assertEquals(error.code, "DSH_LOGIN_REQUIRED");
+  logger.flush();
+  const log = await Deno.readTextFile(filePath);
+  assertFalse(log.includes("private-token"));
+  assertFalse(log.includes("http://"));
+});
+
+Deno.test("startSshTunnel removes startup abort listeners on success", async () => {
+  const { logger } = await memoryLogger();
+  const controller = new AbortController();
+  let listeners = 0;
+  const add = controller.signal.addEventListener.bind(controller.signal);
+  const remove = controller.signal.removeEventListener.bind(controller.signal);
+  controller.signal.addEventListener = (...args: Parameters<AbortSignal["addEventListener"]>) => {
+    const [type, listener, options] = args;
+    if (type === "abort") listeners++;
+    add(type, listener, options);
+  };
+  controller.signal.removeEventListener = (
+    ...args: Parameters<AbortSignal["removeEventListener"]>
+  ) => {
+    const [type, listener, options] = args;
+    if (type === "abort") listeners--;
+    remove(type, listener, options);
+  };
+  const child = fakeChild();
+  const tunnel = await startSshTunnel(profile(), logger, {
+    signal: controller.signal,
+    allocatePort: () => Promise.resolve(41000),
+    spawn: () => child,
+    probe: () => Promise.resolve(200),
+    delay: () => Promise.resolve(),
+  });
+  assertEquals(listeners, 0);
+  controller.abort();
+  assertEquals(child.kills, []);
+  const stopped = tunnel.stop();
+  child.finish({ success: true, code: 0, signal: null });
+  await stopped;
+});
+
 async function startAndClassify(
   stderr: string,
   logger: Awaited<ReturnType<typeof memoryLogger>>["logger"],

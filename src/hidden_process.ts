@@ -26,6 +26,7 @@ export interface HiddenCommandOutput extends HiddenProcessStatus {
 }
 
 export interface HiddenCommandOptions {
+  readonly signal?: AbortSignal;
   readonly timeoutMilliseconds?: number;
   readonly stdin?: string;
 }
@@ -155,6 +156,11 @@ export async function runHiddenCommand(
 ): Promise<HiddenCommandOutput> {
   const timeoutMilliseconds = typeof options === "number" ? options : options.timeoutMilliseconds;
   const stdin = typeof options === "number" ? undefined : options.stdin;
+  const signal = typeof options === "number" ? undefined : options.signal;
+  const throwIfAborted = () => {
+    if (signal?.aborted) throw new DOMException("Hidden command cancelled", "AbortError");
+  };
+  throwIfAborted();
   const launch = resolveProcessLaunch(command, args);
   const child = spawn(launch.command, launch.args, {
     windowsHide: WINDOWS_HIDE_PROCESS,
@@ -177,44 +183,64 @@ export async function runHiddenCommand(
     child.stdin?.end(stdin);
   }
 
-  return await new Promise<HiddenCommandOutput>((resolve, reject) => {
+  const output = await new Promise<HiddenCommandOutput>((resolve, reject) => {
     let settled = false;
+    let timedOut = false;
     let timeout: ReturnType<typeof setTimeout> | undefined;
-    const finish = (output: HiddenCommandOutput) => {
+    const cleanup = () => {
+      if (timeout !== undefined) clearTimeout(timeout);
+      signal?.removeEventListener("abort", onAbort);
+    };
+    const stop = () => {
+      try {
+        killManagedProcess(child, "SIGKILL");
+      } catch {
+        // The command may have exited between cancellation and kill.
+      }
+      child.stdin?.destroy();
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+    };
+    const onAbort = () => {
       if (settled) return;
-      settled = true;
-      if (timeout) clearTimeout(timeout);
-      resolve(output);
+      if (timeout !== undefined) clearTimeout(timeout);
+      stop();
+      // Do not reject until close: callers must be able to await process cleanup.
     };
 
     child.once("error", (error) => {
-      if (settled) return;
+      if (settled || signal?.aborted) return;
       settled = true;
-      if (timeout) clearTimeout(timeout);
+      cleanup();
       reject(error);
     });
-    child.once("close", (code, signal) => {
-      finish({
-        success: code === 0,
-        code: code ?? 1,
-        signal,
+    child.once("close", (code, childSignal) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (signal?.aborted) {
+        reject(new DOMException("Hidden command cancelled", "AbortError"));
+        return;
+      }
+      resolve({
+        success: !timedOut && code === 0,
+        code: timedOut ? 1 : code ?? 1,
+        signal: timedOut ? "SIGKILL" : childSignal,
         stdout,
         stderr,
       });
     });
-    if (!settled && timeoutMilliseconds && timeoutMilliseconds > 0) {
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+    else if (timeoutMilliseconds && timeoutMilliseconds > 0) {
       timeout = setTimeout(() => {
-        try {
-          child.kill("SIGKILL");
-        } catch {
-          // The command may have exited between the timer firing and kill.
-        }
-        child.stdout?.destroy();
-        child.stderr?.destroy();
-        finish({ success: false, code: 1, signal: "SIGKILL", stdout, stderr });
+        timedOut = true;
+        stop();
       }, timeoutMilliseconds);
     }
   });
+  throwIfAborted();
+  return output;
 }
 
 export function isCommandNotFoundError(error: unknown): boolean {

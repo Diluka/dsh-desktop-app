@@ -854,6 +854,12 @@
       <main class="workspace">
         <div class="workspace-inner">
           <div id="notice" class="notice" role="alert" hidden></div>
+          <div id="reconnect-panel" class="notice" hidden>
+            <p id="reconnect-message" role="status" aria-live="polite"></p>
+            <button id="reconnect-now" class="button small primary" type="button">立即重试</button>
+            <button id="reconnect-cancel" class="button small secondary"
+              type="button">取消重连</button>
+          </div>
 
           <div id="update-banner" class="update-banner" role="status" hidden>
             <span class="update-banner-message">发现新版本</span>
@@ -1041,6 +1047,13 @@
       var form = document.getElementById("server-form");
       var tokenPrompt = document.getElementById("dsh-web-token-prompt");
       var notice = document.getElementById("notice");
+      var reconnectPanel = document.getElementById("reconnect-panel");
+      var reconnectMessage = document.getElementById("reconnect-message");
+      var reconnectNow = document.getElementById("reconnect-now");
+      var reconnectCancel = document.getElementById("reconnect-cancel");
+      var reconnectState = null;
+      var reconnectPollTimer;
+      var reconnectRevision = 0;
       var toast = document.getElementById("toast");
       var connecting = document.getElementById("connecting");
       var cancelLocalButton = document.getElementById("cancel-local-start");
@@ -1072,6 +1085,30 @@
       setMode(state.mode, false);
       document.getElementById("start-local").addEventListener("click", connectLocal);
       cancelLocalButton.addEventListener("click", cancelLocalStart);
+      reconnectCancel.addEventListener("click", async function () {
+        reconnectCancel.disabled = true;
+        try {
+          await globalThis.bindings.cancelReconnect();
+          renderReconnect(null);
+          showNotice("已取消自动重连，可以选择服务器重新连接。");
+        } catch (error) {
+          showToast(errorMessage(error));
+        } finally {
+          reconnectCancel.disabled = false;
+        }
+      });
+      reconnectNow.addEventListener("click", function () {
+        var profile = reconnectState && state.profiles.find(function (item) {
+          return item.id === reconnectState.profileId;
+        });
+        if (!profile) return;
+        if (reconnectState.errorCode === "DSH_LOGIN_REQUIRED") {
+          promptForDshWebToken(profile, reconnectState.message);
+          return;
+        }
+        renderReconnect(null);
+        void connectProfile(profile);
+      });
       document.getElementById("add-server").addEventListener("click", function () {
         openEditor();
       });
@@ -1124,6 +1161,7 @@
           ? "本地模式优先使用 dsh；不可用时通过 npx 启动。"
           : "认证使用 .ssh/config、密钥或 ssh-agent；应用不处理密码。";
         if (persist && state.ready) {
+          if (local) renderReconnect(null);
           globalThis.bindings.setModePreference(state.mode).catch(function (error) {
             showToast(errorMessage(error));
           });
@@ -1143,7 +1181,7 @@
           }
           var data = await globalThis.bindings.bootstrap();
           applyBootstrapData(data);
-          if (data.startupNotice) showNotice(data.startupNotice);
+          if (data.startupNotice && !data.reconnect) showNotice(data.startupNotice);
           if (state.mode === "remote" && !state.profiles.length) openEditor();
         } catch (error) {
           var detail = errorMessage(error);
@@ -1153,6 +1191,31 @@
           }
           showNotice(detail);
           document.getElementById("server-count").textContent = "配置读取失败";
+        }
+      }
+
+      function renderReconnect(value) {
+        reconnectRevision += 1;
+        window.clearTimeout(reconnectPollTimer);
+        reconnectState = value;
+        reconnectPanel.hidden = !value;
+        if (!value) return;
+        notice.hidden = true;
+        reconnectMessage.textContent = value.message;
+        reconnectCancel.hidden = !value.active;
+        reconnectNow.textContent = value.errorCode === "DSH_LOGIN_REQUIRED" ? "更新 token" : "立即重试";
+        if (value.active) {
+          reconnectPollTimer = window.setTimeout(pollReconnect, 500);
+        }
+      }
+
+      async function pollReconnect() {
+        var revision = reconnectRevision;
+        try {
+          var value = await globalThis.bindings.getReconnectState();
+          if (revision === reconnectRevision) renderReconnect(value);
+        } catch (_) {
+          // Successful navigation removes shell bindings; stop polling there.
         }
       }
 
@@ -1173,6 +1236,7 @@
         renderSshStatus();
         renderLocalEnvironment();
         renderProfiles();
+        renderReconnect(data.reconnect);
         if (firstBootstrap && state.updatesSupported) void checkForUpdate();
       }
 
@@ -1401,6 +1465,7 @@
       }
 
       async function connectProfile(profile) {
+        renderReconnect(null);
         state.profiles = [profile].concat(state.profiles.filter(function (item) {
           return item.id !== profile.id;
         }));

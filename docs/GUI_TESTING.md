@@ -147,11 +147,23 @@ tail -f "$(ls -t "$log_dir"/dsh-desktop-*.jsonl | head -n 1)"
 `ssh.connect_failed` 和 `childOutputFile`，对应 `.child.log` 保留 OpenSSH 原始输出。应用不崩溃、
 不残留长期运行的 `ssh` 子进程，原始输出也不应出现在 JSONL 中。
 
-### 6. 断线返回
+### 6. 断线自动重连
 
-连接成功后，让测试 SSH 会话中断（例如停止测试 sshd、断开测试网络，或结束对应本地 `ssh` 进程）。
+1. 连接成功后，让测试 SSH 会话中断（例如断开测试网络，或结束对应本地 `ssh` 进程）。
+2. 确认窗口返回选择页，显示等待/重连进度；恢复网络后自动重新打开 DSH Web。
+3. 保持测试网络不可用，确认依次等待 `1、2、4、8、15` 秒，最多 5 次后显示失败及手动重试入口。
+4. 分别在等待期间和正在连接时点击“取消重连”，确认停止重试并清理当前 SSH 子进程。
+5. 重复中断后选择另一服务器、切换本地模式或关闭应用，确认旧连接不会在后台重新建立或抢回窗口。
+6. 在测试机器执行一次休眠/唤醒，确认 SSH 检测到退出后触发同样的恢复流程（检测由 OpenSSH keepalive
+   驱动）。
+7. 模拟 SSH 认证/主机密钥错误，确认停止自动重试；token 失效且恢复失败时显示“更新 token”。
 
-预期窗口返回服务器选择页并显示连接断开提示，日志中的 `ssh.tunnel_exited.stopRequested` 为 `false`。
+预期 `ssh.tunnel_exited.stopRequested` 为 `false`，随后有重试事件；恢复成功记录 `ssh.reconnected`，
+停止重试记录 `ssh.reconnect_stopped`。主动退出不触发重连。恢复会重新加载 DSH
+Web，未提交的页面输入不保留。
+
+另在独立的 80 列 tmux 测试窗口启动带 token 的 DSH Web，留空客户端 token 后连接；确认跨列折行的启动
+URL 仍能自动恢复 token，日志仅记录来源和事件，不记录 token 明文。
 
 ### 7. OpenSSH 缺失提示
 

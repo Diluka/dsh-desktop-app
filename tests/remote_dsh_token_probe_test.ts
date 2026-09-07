@@ -1,4 +1,5 @@
-import { assertEquals, assertFalse, assertStringIncludes } from "@std/assert";
+import { kill as signalProcess } from "node:process";
+import { assertEquals, assertFalse, assertRejects, assertStringIncludes } from "@std/assert";
 import { type HiddenCommandOptions, runHiddenCommand } from "../src/hidden_process.ts";
 import {
   buildRemoteTokenProbeSshArguments,
@@ -11,7 +12,8 @@ import {
 import POSIX_REMOTE_DSH_TOKEN_PROBE_SCRIPT from "../src/remote_dsh_token_probe_posix.sh" with {
   type: "text",
 };
-import { profile } from "./test_helpers.ts";
+import { startSshTunnel } from "../src/ssh_tunnel.ts";
+import { fakeChild, memoryLogger, profile } from "./test_helpers.ts";
 
 Deno.test("buildRemoteTokenProbeSshArguments runs a non-interactive remote command", () => {
   const args = buildRemoteTokenProbeSshArguments(
@@ -57,6 +59,93 @@ Deno.test("POSIX remote token probe script passes sh syntax check", async () => 
   });
 
   assertEquals(output.success, true, output.stderr || output.stdout);
+});
+
+// This contract also runs on Windows and hosts without tmux.
+Deno.test("POSIX remote token probe joins wrapped tmux lines before extracting tokens", () => {
+  assertStringIncludes(
+    POSIX_REMOTE_DSH_TOKEN_PROBE_SCRIPT,
+    'tmux capture-pane -p -J -S -2000 -t "$pane"',
+  );
+});
+
+const hasTmux = Deno.build.os !== "windows" &&
+  (await runHiddenCommand("sh", ["-c", "command -v tmux >/dev/null 2>&1"])).success;
+
+Deno.test({
+  name: "POSIX shell/tmux integration preserves a 43-character token across column 80",
+  ignore: !hasTmux,
+  async fn() {
+    const token = "a".repeat(42) + "Z"; // Synthetic; never use a real launch token.
+    const url = `http://127.0.0.1:3080/?token=${token}`;
+    const launchLine = `dsh web: ${url}`;
+    assertEquals(launchLine.length, 81);
+
+    // Every tmux invocation targets this test's server, including cleanup. Ignore
+    // user tmux configuration and never list/capture panes on the default socket.
+    const socket = `dsh-token-test-${crypto.randomUUID()}`;
+    const tmux = (...args: string[]) =>
+      runHiddenCommand("tmux", ["-L", socket, "-f", "/dev/null", ...args], {
+        timeoutMilliseconds: 5_000,
+      });
+    try {
+      const started = await tmux(
+        "new-session",
+        "-d",
+        "-s",
+        "token-probe",
+        "-x",
+        "80",
+        "-y",
+        "24",
+        "sh",
+        "-c",
+        `printf '%s\\n' '${launchLine}' 'unrelated next line'; ` +
+          `tmux -L '${socket}' -f /dev/null wait-for -S ready; ` +
+          `exec tmux -L '${socket}' -f /dev/null wait-for hold`,
+      );
+      assertEquals(started.success, true, started.stderr);
+      const ready = await tmux("wait-for", "ready");
+      assertEquals(ready.success, true, ready.stderr);
+      const width = await tmux("display-message", "-p", "-t", "token-probe:0.0", "#{pane_width}");
+      assertEquals(width.stdout.trim(), "80");
+
+      // Negative control reproduces the original truncation with the real tmux.
+      const wrapped = await tmux("capture-pane", "-p", "-S", "-2000", "-t", "token-probe:0.0");
+      assertEquals(wrapped.success, true, wrapped.stderr);
+      assertStringIncludes(wrapped.stdout, `${launchLine.slice(0, 80)}\nZ\n`);
+      assertEquals(extractRemoteDshWebTokenCandidates(wrapped.stdout, "tmux"), [{
+        sourceId: "tmux",
+        token: token.slice(0, 42),
+        url: url.slice(0, -1),
+      }]);
+
+      // Load the maintained function definitions, but invoke only tmux: this test
+      // must not read the host's journal or /proc logs, or contact any SSH host.
+      const sections = POSIX_REMOTE_DSH_TOKEN_PROBE_SCRIPT.split(
+        "\ndsh_desktop_probe_source tmux\n",
+      );
+      assertEquals(sections.length, 2);
+      const joined = await runHiddenCommand("sh", ["-s"], {
+        timeoutMilliseconds: 5_000,
+        stdin: `${sections[0]}
+tmux() { command tmux -L '${socket}' -f /dev/null "$@"; }
+dsh_desktop_probe_source tmux
+dsh_desktop_probe_tmux
+`,
+      });
+      assertEquals(joined.success, true, joined.stderr);
+      assertStringIncludes(joined.stdout, `${launchLine}\nunrelated next line\n`);
+      assertEquals(extractRemoteDshWebTokenCandidates(joined.stdout), [{
+        sourceId: "tmux",
+        token,
+        url,
+      }]);
+    } finally {
+      const stopped = await tmux("kill-server");
+      assertEquals(stopped.success, true, stopped.stderr);
+    }
+  },
 });
 
 Deno.test("extractRemoteDshWebTokenCandidates preserves source metadata", () => {
@@ -138,6 +227,175 @@ Deno.test("recoverRemoteDshWebToken returns the first candidate verified through
     token: "new-token",
     url: "http://127.0.0.1:3080/?token=new-token",
   });
+});
+
+Deno.test("remote token recovery pre-cancellation starts no program or HTTP probe", async () => {
+  const controller = new AbortController();
+  controller.abort(new Error("custom reason"));
+  let calls = 0;
+  const error = await assertRejects(() =>
+    recoverRemoteDshWebToken(profile(), 41000, {
+      signal: controller.signal,
+      run: () => {
+        calls++;
+        throw new Error("must not run");
+      },
+      probe: () => {
+        calls++;
+        throw new Error("must not probe");
+      },
+    }), DOMException);
+  assertEquals(error.name, "AbortError");
+  assertEquals(calls, 0);
+});
+
+for (const outcome of ["success", "error", "abort-error"] as const) {
+  Deno.test(`remote token collection stops after cancellation with ${outcome}`, async () => {
+    const controller = new AbortController();
+    let runs = 0;
+    let probes = 0;
+    const error = await assertRejects(() =>
+      recoverRemoteDshWebToken(profile(), 41000, {
+        signal: controller.signal,
+        programs: [{ id: "first", args: () => [] }, { id: "second", args: () => [] }],
+        run: (_command, _args, options) => {
+          runs++;
+          assertEquals(options.signal, controller.signal);
+          if (outcome === "abort-error") throw new DOMException("cancelled", "AbortError");
+          controller.abort(new Error("cancel"));
+          if (outcome === "error") throw new Error("interrupted");
+          return Promise.resolve({
+            success: true,
+            stdout: "dsh web: http://127.0.0.1:3080/?token=late",
+            stderr: "",
+          });
+        },
+        probe: () => {
+          probes++;
+          return Promise.resolve(200);
+        },
+      }), DOMException);
+    assertEquals(error.name, "AbortError");
+    assertEquals(runs, 1);
+    assertEquals(probes, 0);
+  });
+}
+
+Deno.test("remote token recovery aborts an active candidate HTTP request without probing the next", async () => {
+  const controller = new AbortController();
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let requests = 0;
+  const server = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen: () => {} }, async () => {
+    requests++;
+    entered.resolve();
+    await release.promise;
+    return new Response("done");
+  });
+  const result = recoverRemoteDshWebToken(profile(), server.addr.port, {
+    signal: controller.signal,
+    run: () =>
+      Promise.resolve({
+        success: true,
+        stdout:
+          "dsh web: http://127.0.0.1:3080/?token=first\ndsh web: http://127.0.0.1:3080/?token=second",
+        stderr: "",
+      }),
+  });
+  try {
+    const rejected = assertRejects(() => result, DOMException);
+    await entered.promise;
+    controller.abort();
+    assertEquals((await rejected).name, "AbortError");
+    assertEquals(requests, 1);
+  } finally {
+    controller.abort();
+    release.resolve();
+    await result.catch(() => undefined);
+    await server.shutdown();
+  }
+});
+
+Deno.test("SSH startup cancellation waits for the real recovery process to exit", async () => {
+  const { logger } = await memoryLogger();
+  const controller = new AbortController();
+  const started = Promise.withResolvers<number>();
+  const server = Deno.serve(
+    { hostname: "127.0.0.1", port: 0, onListen: () => {} },
+    async (request) => {
+      started.resolve(Number(await request.text()));
+      return new Response("ready");
+    },
+  );
+  const child = fakeChild();
+  const kill = child.kill.bind(child);
+  child.kill = (signal) => {
+    kill(signal);
+    child.finish({ success: false, code: 143, signal: "SIGTERM" });
+  };
+  let candidateProbes = 0;
+  let recoveryFinished = false;
+  const result = startSshTunnel(profile(), logger, {
+    signal: controller.signal,
+    allocatePort: () => Promise.resolve(41000),
+    spawn: () => child,
+    probe: () => Promise.resolve(401),
+    delay: () => Promise.resolve(),
+    recoverToken: async () => {
+      try {
+        return await recoverRemoteDshWebToken(profile(), 41000, {
+          signal: controller.signal,
+          command: Deno.execPath(),
+          timeoutMilliseconds: 5_000,
+          programs: [{
+            id: "real-process",
+            args: () => [
+              "eval",
+              `
+            await fetch("http://127.0.0.1:${server.addr.port}", { method: "POST", body: String(Deno.pid) });
+            setInterval(() => {}, 1000);
+          `,
+            ],
+          }],
+          probe: () => {
+            candidateProbes++;
+            return Promise.resolve(200);
+          },
+        });
+      } finally {
+        recoveryFinished = true;
+      }
+    },
+  });
+  try {
+    const pid = await Promise.race([
+      started.promise,
+      result.then(() => {
+        throw new Error("startup completed before the recovery process started");
+      }),
+    ]);
+    const rejected = assertRejects(() => result, DOMException);
+    controller.abort();
+    assertEquals((await rejected).name, "AbortError");
+    assertEquals(recoveryFinished, true);
+    assertEquals(candidateProbes, 0);
+    assertEquals(child.kills, ["SIGTERM"]);
+    if (Deno.build.os === "windows") {
+      const running = await runHiddenCommand("tasklist", ["/fi", `PID eq ${pid}`, "/nh"]);
+      assertFalse(running.stdout.includes(String(pid)));
+    } else {
+      let alive = false;
+      try {
+        signalProcess(pid, 0);
+        alive = true;
+      } catch { /* process exited */ }
+      assertFalse(alive, "startup cancellation left the recovery process running");
+    }
+  } finally {
+    controller.abort();
+    await result.catch(() => undefined);
+    await server.shutdown();
+  }
 });
 
 Deno.test("recoverRemoteDshWebToken returns undefined when no candidate verifies", async () => {

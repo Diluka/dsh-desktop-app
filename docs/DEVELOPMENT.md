@@ -226,7 +226,8 @@ src/managed_endpoint.ts        子进程停止与退出生命周期
 src/profiles.ts                服务器配置和偏好持久化
 src/remote_dsh_token_probe.ts  远端 DSH Web token 探针与验证
 src/remote_dsh_token_probe_posix.sh  POSIX 远端日志探针脚本
-src/ssh_tunnel.ts              OpenSSH 隧道与错误分类
+src/ssh_tunnel.ts              可取消的 OpenSSH 隧道启动与错误分类
+src/ssh_reconnect.ts           有限退避重连与终止错误策略
 src/ui.html                    本地选择页的结构、样式和交互
 src/ui.ts                      本地选择页 HTTP 响应与安全头
 tests/                         无头单元测试
@@ -236,7 +237,8 @@ docs/                          开发、发布和 GUI 验证文档
 ## 当前限制
 
 - OpenSSH 认证依赖密钥或 `ssh-agent`，应用不提供密码和 passphrase 交互。
-- SSH 或本地 DSH 进程意外退出后会返回选择页，目前不自动重连。
+- SSH 意外退出后返回选择页并最多自动重连 5 次，可取消或立即重试；恢复后重新加载远端页面。 本地 DSH
+  进程意外退出后返回选择页，由用户重新启动。
 - macOS 分发包未签名和 notarize，首次打开可能需要通过 Finder 确认。
 - 真实窗口、图标、WebView2 Runtime 和平台集成行为仍需按照 [GUI 验证](GUI_TESTING.md)
   在目标系统检查。

@@ -26,6 +26,7 @@ export interface RemoteDshTokenProbeCommandOutput {
 }
 
 export interface RemoteDshTokenProbeOptions {
+  readonly signal?: AbortSignal;
   readonly command?: string;
   readonly programs?: readonly RemoteDshTokenProbeProgram[];
   readonly timeoutMilliseconds?: number;
@@ -80,6 +81,7 @@ export async function collectRemoteDshWebTokenCandidates(
   profile: ServerProfile,
   options: RemoteDshTokenProbeOptions = {},
 ): Promise<RemoteDshWebTokenCandidate[]> {
+  throwIfAborted(options.signal);
   const command = options.command ?? "ssh";
   const programs = options.programs ?? defaultRemoteDshTokenProbePrograms();
   const timeoutMilliseconds = options.timeoutMilliseconds ?? DEFAULT_PROBE_TIMEOUT_MS;
@@ -87,15 +89,20 @@ export async function collectRemoteDshWebTokenCandidates(
   const candidates: RemoteDshWebTokenCandidate[] = [];
 
   for (const program of programs) {
+    throwIfAborted(options.signal);
     let output: RemoteDshTokenProbeCommandOutput;
     try {
       output = await run(command, program.args(profile), {
         timeoutMilliseconds,
+        ...(options.signal ? { signal: options.signal } : {}),
         ...(program.stdin !== undefined ? { stdin: program.stdin } : {}),
       });
-    } catch {
+    } catch (error) {
+      throwIfAborted(options.signal);
+      if (error instanceof DOMException && error.name === "AbortError") throw error;
       continue;
     }
+    throwIfAborted(options.signal);
     if (!output.success) continue;
     candidates.push(...extractRemoteDshWebTokenCandidates(output.stdout, program.id));
     candidates.push(...extractRemoteDshWebTokenCandidates(output.stderr, program.id));
@@ -110,20 +117,26 @@ export async function recoverRemoteDshWebToken(
   options: RecoverRemoteDshWebTokenOptions = {},
 ): Promise<RecoveredRemoteDshWebToken | undefined> {
   const candidates = await collectRemoteDshWebTokenCandidates(profile, options);
+  throwIfAborted(options.signal);
   const probe = options.probe ?? ((url) =>
     probeHttp(url, {
+      signal: options.signal,
       accept: "text/html",
       validateStatus: () => true,
     }));
 
   for (const candidate of candidates) {
+    throwIfAborted(options.signal);
     const url = loopbackDshWebUrl(localPort, candidate.token);
     let status: number;
     try {
       status = await probe(url);
-    } catch {
+    } catch (error) {
+      throwIfAborted(options.signal);
+      if (error instanceof DOMException && error.name === "AbortError") throw error;
       continue;
     }
+    throwIfAborted(options.signal);
     if (status >= 200 && status < 400) return candidate;
   }
 
@@ -148,6 +161,10 @@ export function extractRemoteDshWebTokenCandidates(
   }
 
   return uniqueTokenCandidates(candidates);
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new DOMException("Remote token recovery cancelled", "AbortError");
 }
 
 function uniqueTokenCandidates(
