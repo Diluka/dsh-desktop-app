@@ -6,12 +6,9 @@ import {
   readProcessOutputTail,
   runHiddenCommand,
 } from "./hidden_process.ts";
-import { allocateLoopbackPort, probeHttp } from "./loopback_http.ts";
+import { allocateLoopbackPort } from "./loopback_http.ts";
 import { ManagedEndpoint, type ManagedEndpointExit } from "./managed_endpoint.ts";
 import type { ServerProfile } from "./profiles.ts";
-
-const DEFAULT_STARTUP_TIMEOUT_MS = 20_000;
-const MAX_LOCAL_PORT_ATTEMPTS = 3;
 
 export interface OpenSshInfo {
   readonly available: boolean;
@@ -38,35 +35,56 @@ export class TunnelError extends Error {
   }
 }
 
-export interface DshWebTokenRecoveryContext {
-  readonly profile: ServerProfile;
-  readonly localPort: number;
-  readonly currentUrl: string;
-}
-
-export interface RecoveredDshWebToken {
-  readonly token: string;
-  readonly sourceId?: string;
-}
-
-interface StartTunnelOptions {
+export interface StartTunnelOptions {
   readonly command?: string;
-  readonly startupTimeoutMs?: number;
   readonly allocatePort?: () => Promise<number>;
   readonly spawn: (command: string, args: string[]) => ManagedHiddenProcess;
-  readonly probe?: (url: string) => Promise<number>;
-  readonly recoverToken?: (
-    context: DshWebTokenRecoveryContext,
-  ) => Promise<RecoveredDshWebToken | undefined>;
   readonly delay?: (milliseconds: number) => Promise<void>;
-  readonly now?: () => number;
 }
 
 export type TunnelExit = ManagedEndpointExit;
 
 export class SshTunnel extends ManagedEndpoint {
-  useDshWebToken(localPort: number, token: string): void {
-    this.replaceUrl(loopbackDshWebUrl(localPort, token));
+  #running = true;
+
+  constructor(
+    private readonly profile: ServerProfile,
+    readonly localPort: number,
+    child: ManagedHiddenProcess,
+    delay: (milliseconds: number) => Promise<void>,
+  ) {
+    super(loopbackDshWebUrl(localPort, profile.dshWebToken), child, delay);
+    void this.exited.then(() => this.#running = false);
+  }
+
+  matches(profile: ServerProfile): boolean {
+    return this.#running && this.profile.id === profile.id &&
+      this.profile.sshTarget === profile.sshTarget &&
+      this.profile.remotePort === profile.remotePort;
+  }
+
+  override stop(): Promise<void> {
+    this.#running = false;
+    return super.stop();
+  }
+
+  useDshWebToken(token: string): void {
+    this.replaceUrl(loopbackDshWebUrl(this.localPort, token));
+  }
+
+  async failureFromExit(exit: TunnelExit, logger: Logger): Promise<TunnelError> {
+    const detail = await readProcessOutputTail(this.outputFile);
+    const error = classifySshFailure(detail, exit.error);
+    logger.warn({
+      event: "ssh.tunnel_failed",
+      profileId: this.profile.id,
+      errorCode: error.code,
+      childExitCode: exit.code,
+      childSignal: exit.signal,
+      childOutputFile: this.outputFile,
+      ...(exit.error ? { err: exit.error } : {}),
+    }, "OpenSSH tunnel failed");
+    return error;
   }
 }
 
@@ -122,37 +140,9 @@ export async function startSshTunnel(
   logger: Logger,
   options: StartTunnelOptions,
 ): Promise<SshTunnel> {
-  for (let attempt = 1; attempt <= MAX_LOCAL_PORT_ATTEMPTS; attempt++) {
-    try {
-      return await startTunnelAttempt(profile, logger, options);
-    } catch (error) {
-      if (!(error instanceof TunnelError) || error.code !== "LOCAL_PORT_BUSY") throw error;
-      logger.warn({
-        event: "ssh.local_port_retry",
-        profileId: profile.id,
-        attempt,
-      }, "Local port was claimed before SSH bound it");
-    }
-  }
-  throw new TunnelError("LOCAL_PORT_BUSY", "无法分配本地端口，请重试");
-}
-
-async function startTunnelAttempt(
-  profile: ServerProfile,
-  logger: Logger,
-  options: StartTunnelOptions,
-): Promise<SshTunnel> {
   const command = options.command ?? "ssh";
   const allocatePort = options.allocatePort ?? allocateLoopbackPort;
-  const spawn = options.spawn;
-  const probe = options.probe ?? ((url) =>
-    probeHttp(url, {
-      accept: "text/html",
-      validateStatus: () => true,
-    }));
   const delay = options.delay ?? sleep;
-  const now = options.now ?? Date.now;
-  const startupTimeoutMs = options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS;
   const localPort = await allocatePort();
   const args = buildSshArguments(profile, localPort);
 
@@ -165,123 +155,14 @@ async function startTunnelAttempt(
 
   let child: ManagedHiddenProcess;
   try {
-    child = spawn(command, args);
+    child = options.spawn(command, args);
   } catch (error) {
     if (isCommandNotFoundError(error)) {
       throw new TunnelError("SSH_NOT_FOUND", "未找到 OpenSSH Client，请先安装后重试");
     }
     throw error;
   }
-
-  const tunnel = new SshTunnel(loopbackDshWebUrl(localPort, profile.dshWebToken), child, delay);
-  let tokenRecoveryAttempted = false;
-  const exitOutcome = tunnel.exited.then((value) => ({
-    kind: "exit" as const,
-    value,
-  }));
-
-  async function failureFromExit(exit: TunnelExit): Promise<TunnelError> {
-    const detail = await readProcessOutputTail(tunnel.outputFile);
-    const error = classifySshFailure(detail, exit.error);
-    logger.warn({
-      event: "ssh.tunnel_failed",
-      profileId: profile.id,
-      errorCode: error.code,
-      childExitCode: exit.code,
-      childSignal: exit.signal,
-      childOutputFile: tunnel.outputFile,
-      ...(exit.error ? { err: exit.error } : {}),
-    }, "OpenSSH tunnel failed");
-    return error;
-  }
-
-  const startedAt = now();
-  while (now() - startedAt < startupTimeoutMs) {
-    const outcome = await Promise.race([
-      exitOutcome,
-      probe(tunnel.url).then(
-        (status) => probeOutcome(status),
-        () => ({ kind: "retry" as const }),
-      ),
-    ]);
-    if (outcome.kind === "exit") throw await failureFromExit(outcome.value);
-    if (outcome.kind === "login_required") {
-      if (!tokenRecoveryAttempted && options.recoverToken) {
-        tokenRecoveryAttempted = true;
-        try {
-          const recovered = await options.recoverToken({
-            profile,
-            localPort,
-            currentUrl: tunnel.url,
-          });
-          if (recovered) {
-            tunnel.useDshWebToken(localPort, recovered.token);
-            logger.info({
-              event: "ssh.dsh_token_recovered",
-              profileId: profile.id,
-              childOutputFile: tunnel.outputFile,
-              startupMs: Math.max(0, now() - startedAt),
-              sourceId: recovered.sourceId ?? "unknown",
-            }, "Recovered remote DSH Web launch token");
-            return tunnel;
-          }
-        } catch (error) {
-          logger.warn({
-            event: "ssh.dsh_token_recovery_failed",
-            profileId: profile.id,
-            err: error,
-          }, "Remote DSH Web token recovery failed");
-        }
-      }
-      await tunnel.stop();
-      logger.warn({
-        event: "ssh.dsh_login_required",
-        profileId: profile.id,
-        childOutputFile: tunnel.outputFile,
-        startupMs: Math.max(0, now() - startedAt),
-        status: outcome.status,
-      }, "Remote DSH Web requires a launch token");
-      throw new TunnelError(
-        "DSH_LOGIN_REQUIRED",
-        "远端 DSH Web 要求登录，请输入新的 token 后重试",
-      );
-    }
-    if (outcome.kind === "ready") {
-      logger.info({
-        event: "ssh.tunnel_ready",
-        profileId: profile.id,
-        childOutputFile: tunnel.outputFile,
-        startupMs: Math.max(0, now() - startedAt),
-      }, "SSH tunnel and remote DSH Web are ready");
-      return tunnel;
-    }
-
-    const pause = await Promise.race([
-      exitOutcome,
-      delay(150).then(() => ({ kind: "retry" as const })),
-    ]);
-    if (pause.kind === "exit") throw await failureFromExit(pause.value);
-  }
-
-  await tunnel.stop();
-  logger.warn({
-    event: "ssh.tunnel_unavailable",
-    profileId: profile.id,
-    childOutputFile: tunnel.outputFile,
-  }, "SSH tunnel did not become ready");
-  throw new TunnelError(
-    "DSH_UNAVAILABLE",
-    "SSH 已连接，但远端 DSH Web 未在限定时间内响应；请检查远端端口配置",
-  );
-}
-
-function probeOutcome(status: number):
-  | { readonly kind: "ready" }
-  | { readonly kind: "login_required"; readonly status: number }
-  | { readonly kind: "retry" } {
-  if (status === 401) return { kind: "login_required", status };
-  if (status >= 200 && status < 400) return { kind: "ready" };
-  return { kind: "retry" };
+  return new SshTunnel(profile, localPort, child, delay);
 }
 
 function classifySshFailure(detail: string, processError?: Error): TunnelError {

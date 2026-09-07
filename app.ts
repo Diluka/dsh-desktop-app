@@ -11,8 +11,9 @@ import {
 import { createLogger } from "./src/logger.ts";
 import { openDirectory, openExternalUrl } from "./src/open_directory.ts";
 import { ProfileStore, type ServerProfileInput } from "./src/profiles.ts";
+import { connectRemoteDsh } from "./src/remote_connection.ts";
 import { recoverRemoteDshWebToken } from "./src/remote_dsh_token_probe.ts";
-import { probeOpenSsh, SshTunnel, startSshTunnel, TunnelError } from "./src/ssh_tunnel.ts";
+import { probeOpenSsh, SshTunnel, TunnelError } from "./src/ssh_tunnel.ts";
 import { checkForUpdate, UPDATE_RELEASE_URL } from "./src/updater.ts";
 import { handleShellRequest } from "./src/ui.ts";
 import { setWindowsWindowIcon } from "./src/windows_window_icon.ts";
@@ -114,6 +115,7 @@ async function startDesktopWithShellServer(
   let activeTunnel: SshTunnel | undefined;
   let activeLocal: LocalDshWeb | undefined;
   let localStartController: AbortController | undefined;
+  let remoteStartController: AbortController | undefined;
   let connecting = false;
   let shellBindingsActive = false;
   let shuttingDown = false;
@@ -283,26 +285,36 @@ async function startDesktopWithShellServer(
 
     const profile = store.get(id);
     if (!profile) throw new Error("服务器配置不存在或已被删除");
-    try {
-      await store.markUsed(id);
-    } catch (error) {
-      logger.warn(
-        { event: "profiles.last_used_failed", profileId: id, err: error },
-        "Could not persist the last used server profile",
-      );
-    }
+    if (shuttingDown || window.isClosed()) return;
+    if (connecting) throw new Error("已有连接正在建立，请稍候");
     connecting = true;
+    const controller = new AbortController();
+    remoteStartController = controller;
     try {
+      try {
+        await store.markUsed(id);
+      } catch (error) {
+        logger.warn(
+          { event: "profiles.last_used_failed", profileId: id, err: error },
+          "Could not persist the last used server profile",
+        );
+      }
+      controller.signal.throwIfAborted();
       if (activeLocal) {
         await activeLocal.stop();
         activeLocal = undefined;
       }
-      if (activeTunnel) await activeTunnel.stop();
-      const tunnel = await startSshTunnel(profile, logger, {
+      const tunnel = await connectRemoteDsh(profile, logger, {
         spawn: spawnChild,
+        tunnel: activeTunnel,
+        signal: controller.signal,
+        onTunnel: (tunnel) => {
+          activeTunnel = tunnel;
+          void observeTunnel(tunnel, profile.name);
+        },
         recoverToken: async ({ localPort }) => {
           const recovered = await recoverRemoteDshWebToken(profile, localPort);
-          if (!recovered) return undefined;
+          if (!recovered || controller.signal.aborted) return undefined;
           try {
             await store.save({ ...profile, dshWebToken: recovered.token });
             logger.info({
@@ -321,7 +333,8 @@ async function startDesktopWithShellServer(
           return { token: recovered.token, sourceId: recovered.sourceId };
         },
       });
-      activeTunnel = tunnel;
+      if (shuttingDown || window.isClosed() || activeTunnel !== tunnel) return;
+      if (!tunnel.matches(profile)) throw await tunnel.failureFromExit(await tunnel.exited, logger);
 
       // The DSH Web page must not inherit privileged bindings from the local selector.
       unbindShell();
@@ -333,7 +346,6 @@ async function startDesktopWithShellServer(
         await tunnel.stop();
         throw error;
       }
-      void observeTunnel(tunnel, profile.name);
     } catch (error) {
       logger.error({
         event: "ssh.connect_failed",
@@ -343,6 +355,7 @@ async function startDesktopWithShellServer(
       if (error instanceof TunnelError) throw error;
       throw new Error("连接失败，详细信息已写入日志");
     } finally {
+      if (remoteStartController === controller) remoteStartController = undefined;
       connecting = false;
     }
   }
@@ -351,6 +364,8 @@ async function startDesktopWithShellServer(
     if (connecting) throw new Error("已有连接正在建立，请稍候");
     const { localDshLauncher } = await environmentReady;
     if (!localDshLauncher) throw localDshInstallError();
+    if (shuttingDown || window.isClosed()) return;
+    if (connecting) throw new Error("已有连接正在建立，请稍候");
     const controller = new AbortController();
     localStartController = controller;
     connecting = true;
@@ -422,11 +437,12 @@ async function startDesktopWithShellServer(
     }, exit.stopRequested ? "SSH tunnel stopped" : "SSH tunnel exited unexpectedly");
 
     if (exit.stopRequested) return;
-    if (activeTunnel !== tunnel) return;
-    activeTunnel = undefined;
+    if (activeTunnel !== tunnel || connecting) return;
     if (shuttingDown || window.isClosed()) return;
 
     const detail = lastOutputLine(await readProcessOutputTail(tunnel.outputFile));
+    if (activeTunnel !== tunnel || connecting || shuttingDown || window.isClosed()) return;
+    activeTunnel = undefined;
     startupNotice = detail
       ? `与“${profileName}”的 SSH 连接已断开：${detail}`
       : `与“${profileName}”的 SSH 连接已断开，请检查网络后重试。`;
@@ -462,6 +478,8 @@ async function startDesktopWithShellServer(
     logger.info({ event: "app.shutdown" }, "DSH Desktop is shutting down");
     localStartController?.abort();
     localStartController = undefined;
+    remoteStartController?.abort();
+    remoteStartController = undefined;
     const tunnel = activeTunnel;
     const local = activeLocal;
     activeTunnel = undefined;

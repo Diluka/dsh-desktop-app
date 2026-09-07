@@ -1,5 +1,6 @@
 import { assert, assertEquals, assertFalse, assertMatch, assertRejects } from "@std/assert";
-import { buildSshArguments, probeOpenSsh, startSshTunnel, TunnelError } from "../src/ssh_tunnel.ts";
+import { connectRemoteDsh } from "../src/remote_connection.ts";
+import { buildSshArguments, probeOpenSsh, TunnelError } from "../src/ssh_tunnel.ts";
 import { fakeChild, memoryLogger, profile, tempFile, tickingClock } from "./test_helpers.ts";
 
 Deno.test("buildSshArguments creates non-interactive loopback forwarding without clearing forwards", () => {
@@ -39,11 +40,12 @@ Deno.test("probeOpenSsh reports platform install help when command is missing", 
   assertMatch(macos.installHelp ?? "", /macOS PATH/u);
 });
 
-Deno.test("startSshTunnel reports missing ssh without entering readiness polling", async () => {
+Deno.test("connectRemoteDsh reports missing ssh without entering readiness polling", async () => {
   const { logger } = await memoryLogger();
   const error = await assertRejects(
     () =>
-      startSshTunnel(profile(), logger, {
+      connectRemoteDsh(profile(), logger, {
+        onTunnel: () => {},
         allocatePort: () => Promise.resolve(41000),
         spawn: () => {
           throw new Deno.errors.NotFound("missing ssh");
@@ -61,14 +63,15 @@ Deno.test("startSshTunnel reports missing ssh without entering readiness polling
   assertEquals(error.code, "SSH_NOT_FOUND");
 });
 
-Deno.test("startSshTunnel supports fake child ready path and stop lifecycle", async () => {
+Deno.test("connectRemoteDsh supports fake child ready path and stop lifecycle", async () => {
   const { logger } = await memoryLogger();
   let capturedCommand = "";
   let capturedArgs: string[] = [];
   const child = fakeChild();
 
-  const tunnel = await startSshTunnel(profile(), logger, {
+  const tunnel = await connectRemoteDsh(profile(), logger, {
     command: "fake-ssh",
+    onTunnel: () => {},
     allocatePort: () => Promise.resolve(41000),
     spawn: (command, args) => {
       capturedCommand = command;
@@ -98,13 +101,14 @@ Deno.test("startSshTunnel supports fake child ready path and stop lifecycle", as
   });
 });
 
-Deno.test("startSshTunnel probes and exposes the saved DSH Web token URL", async () => {
+Deno.test("connectRemoteDsh probes and exposes the saved DSH Web token URL", async () => {
   const { logger } = await memoryLogger();
   let capturedArgs: string[] = [];
   const child = fakeChild();
 
-  const tunnel = await startSshTunnel({ ...profile(), dshWebToken: "manual-token" }, logger, {
+  const tunnel = await connectRemoteDsh({ ...profile(), dshWebToken: "manual-token" }, logger, {
     command: "fake-ssh",
+    onTunnel: () => {},
     allocatePort: () => Promise.resolve(41006),
     spawn: (_command, args) => {
       capturedArgs = args;
@@ -125,45 +129,16 @@ Deno.test("startSshTunnel probes and exposes the saved DSH Web token URL", async
   await stopped;
 });
 
-Deno.test("startSshTunnel asks for a new token when remote DSH Web returns 401", async () => {
-  const { logger } = await memoryLogger();
-  const child = fakeChild();
-  const originalKill = child.kill.bind(child);
-  child.kill = (signal?: Deno.Signal) => {
-    originalKill(signal);
-    if (signal === "SIGTERM") child.finish({ success: false, code: 143, signal: "SIGTERM" });
-  };
-
-  const error = await assertRejects(
-    () =>
-      startSshTunnel(profile(), logger, {
-        command: "fake-ssh",
-        allocatePort: () => Promise.resolve(41007),
-        spawn: () => child,
-        probe: (url) => {
-          assertEquals(url, "http://127.0.0.1:41007/?token=");
-          return Promise.resolve(401);
-        },
-        delay: () => Promise.resolve(),
-        now: () => 1000,
-      }),
-    TunnelError,
-  );
-
-  assertEquals(error.code, "DSH_LOGIN_REQUIRED");
-  assertEquals(child.kills, ["SIGTERM"]);
-  await child.status;
-});
-
-Deno.test("startSshTunnel keeps the tunnel when a recovered token verifies", async () => {
+Deno.test("connectRemoteDsh keeps the tunnel when a recovered token verifies", async () => {
   const { logger } = await memoryLogger();
   const child = fakeChild();
   let recoveredContext:
     | { localPort: number; currentUrl: string }
     | undefined;
 
-  const tunnel = await startSshTunnel(profile(), logger, {
+  const tunnel = await connectRemoteDsh(profile(), logger, {
     command: "fake-ssh",
+    onTunnel: () => {},
     allocatePort: () => Promise.resolve(41008),
     spawn: () => child,
     probe: (url) => {
@@ -190,7 +165,7 @@ Deno.test("startSshTunnel keeps the tunnel when a recovered token verifies", asy
   await stopped;
 });
 
-Deno.test("startSshTunnel retries LOCAL_PORT_BUSY and succeeds on a later attempt", async () => {
+Deno.test("connectRemoteDsh retries LOCAL_PORT_BUSY and succeeds on a later attempt", async () => {
   const { logger } = await memoryLogger();
   const busyOutput = await tempFile("busy.log");
   await Deno.writeTextFile(busyOutput, "bind [127.0.0.1]:41001: Address already in use\n");
@@ -199,7 +174,8 @@ Deno.test("startSshTunnel retries LOCAL_PORT_BUSY and succeeds on a later attemp
   const allocatedPorts: number[] = [];
   let spawnCount = 0;
 
-  const tunnel = await startSshTunnel(profile(), logger, {
+  const tunnel = await connectRemoteDsh(profile(), logger, {
+    onTunnel: () => {},
     allocatePort: () => Promise.resolve(spawnCount === 0 ? 41001 : 41002),
     spawn: (_command, args) => {
       spawnCount += 1;
@@ -225,7 +201,7 @@ Deno.test("startSshTunnel retries LOCAL_PORT_BUSY and succeeds on a later attemp
   await stopped;
 });
 
-Deno.test("startSshTunnel throws LOCAL_PORT_BUSY after repeated local port conflicts", async () => {
+Deno.test("connectRemoteDsh throws LOCAL_PORT_BUSY after repeated local port conflicts", async () => {
   const { logger } = await memoryLogger();
   const busyOutput = await tempFile("busy.log");
   await Deno.writeTextFile(
@@ -236,7 +212,8 @@ Deno.test("startSshTunnel throws LOCAL_PORT_BUSY after repeated local port confl
 
   const error = await assertRejects(
     () =>
-      startSshTunnel(profile(), logger, {
+      connectRemoteDsh(profile(), logger, {
+        onTunnel: () => {},
         allocatePort: () => Promise.resolve(41001 + attempts),
         spawn: () => {
           attempts += 1;
@@ -256,7 +233,7 @@ Deno.test("startSshTunnel throws LOCAL_PORT_BUSY after repeated local port confl
   assertEquals(attempts, 3);
 });
 
-Deno.test("startSshTunnel stops tunnel and throws DSH_UNAVAILABLE when remote probe times out", async () => {
+Deno.test("connectRemoteDsh keeps tunnel and throws DSH_UNAVAILABLE when remote probe times out", async () => {
   const { logger } = await memoryLogger();
   const child = fakeChild();
   const originalKill = child.kill.bind(child);
@@ -267,7 +244,8 @@ Deno.test("startSshTunnel stops tunnel and throws DSH_UNAVAILABLE when remote pr
 
   const error = await assertRejects(
     () =>
-      startSshTunnel(profile(), logger, {
+      connectRemoteDsh(profile(), logger, {
+        onTunnel: () => {},
         allocatePort: () => Promise.resolve(41003),
         spawn: () => child,
         probe: () => Promise.reject(new Error("not ready")),
@@ -279,11 +257,12 @@ Deno.test("startSshTunnel stops tunnel and throws DSH_UNAVAILABLE when remote pr
   );
 
   assertEquals(error.code, "DSH_UNAVAILABLE");
-  assertEquals(child.kills, ["SIGTERM", "SIGKILL"]);
+  assertEquals(child.kills, []);
+  child.finish({ success: true, code: 0, signal: null });
   await child.status;
 });
 
-Deno.test("startSshTunnel keeps child output out of the app log", async () => {
+Deno.test("connectRemoteDsh keeps child output out of the app log", async () => {
   const { logger, filePath } = await memoryLogger();
   const error = await startAndClassify(
     "debug: connecting\nPermission denied (publickey).\n",
@@ -316,7 +295,7 @@ for (
     },
   ] as const
 ) {
-  Deno.test(`startSshTunnel classifies ${name}`, async () => {
+  Deno.test(`connectRemoteDsh classifies ${name}`, async () => {
     const { logger } = await memoryLogger();
     const error = await startAndClassify(stderr, logger);
     assertEquals(error.code, code);
@@ -334,7 +313,8 @@ async function startAndClassify(
 
   return await assertRejects(
     () =>
-      startSshTunnel(profile(), logger, {
+      connectRemoteDsh(profile(), logger, {
+        onTunnel: () => {},
         allocatePort: () => Promise.resolve(41005),
         spawn: () => child,
         probe: () => Promise.reject(new Error("not ready")),
