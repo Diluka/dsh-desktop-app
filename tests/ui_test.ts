@@ -5,8 +5,8 @@ import { handleShellRequest } from "../src/ui.ts";
 Deno.test("shell html has key elements and parseable inline scripts", () => {
   for (
     const id of [
-      "start-local",
-      "cancel-local-start",
+      "server-panel",
+      "server-panel-title",
       "server-form",
       "remote-port",
       "dsh-web-token",
@@ -20,7 +20,6 @@ Deno.test("shell html has key elements and parseable inline scripts", () => {
   ) {
     assertMatch(SHELL_HTML, new RegExp(`id="${id}"`, "u"));
   }
-  assertMatch(SHELL_HTML, /npx/u);
   assertMatch(SHELL_HTML, /name="dshWebToken" type="password"/u);
   assertMatch(SHELL_HTML, /dshWebToken: form\.elements\.dshWebToken\.value/u);
   assertMatch(SHELL_HTML, /function promptForDshWebToken\(profile, message\)/u);
@@ -36,18 +35,67 @@ Deno.test("shell html has key elements and parseable inline scripts", () => {
   for (const script of scripts) new Function(script);
 });
 
+Deno.test("shell renders a single remote server panel", () => {
+  assertMatch(SHELL_HTML, /<section id="server-panel" aria-labelledby="server-panel-title">/u);
+  assertMatch(SHELL_HTML, /<h2 id="server-panel-title">选择服务器<\/h2>/u);
+  assertMatch(SHELL_HTML, /通过 SSH Host 建立安全连接。/u);
+  assertMatch(SHELL_HTML, /id="add-server"[^>]*disabled>/u);
+  assertMatch(SHELL_HTML, /id="open-log-directory"/u);
+  assertEquals([...SHELL_HTML.matchAll(/<section id="[^"]+-panel"/gu)].length, 1);
+
+  const connecting = SHELL_HTML.slice(SHELL_HTML.indexOf('id="connecting"'));
+  assertMatch(connecting, /正在准备远程连接/u);
+  assertEquals([...connecting.matchAll(/<li>/gu)].length, 4);
+  assertMatch(connecting, /<li>读取本机 \.ssh\/config<\/li>/u);
+  assertMatch(connecting, /<li>建立回环端口转发<\/li>/u);
+  assertMatch(connecting, /<li>验证远端 DSH Web<\/li>/u);
+  assertMatch(connecting, /<li>需要时尝试恢复 DSH Web token<\/li>/u);
+});
+
+Deno.test("shell has no local DSH mode leftovers", () => {
+  for (
+    const needle of [
+      "local-mode",
+      "mode-panel",
+      "mode-option",
+      "mode-remote",
+      "mode-local",
+      "masthead-modes",
+      "start-local",
+      "cancel-local-start",
+      "connecting-actions",
+      "connectLocal",
+      "cancelLocalStart",
+      "localEnvironment",
+      "setModePreference",
+      "setMode(",
+      "state.mode",
+      "data.mode",
+      "data.localEnvironment",
+      "npx",
+      "connection-backend",
+      "local-platform",
+      "local-node-version",
+      "local-dsh-version",
+      "local-npx-version",
+      "local-powershell",
+      "local-start-description",
+      "diagnostic-note",
+    ]
+  ) {
+    assertFalse(SHELL_HTML.includes(needle), `unexpected leftover: ${needle}`);
+  }
+  assertFalse(/\bmode\b/iu.test(SHELL_HTML));
+});
+
 Deno.test("shell waits for backend bindings before enabling actions", () => {
-  assertMatch(SHELL_HTML, /<button id="start-local"[^>]*disabled>/u);
   assertMatch(SHELL_HTML, /<button id="add-server"[^>]*disabled>/u);
   assertMatch(SHELL_HTML, /<button id="open-log-directory"[^>]*disabled>/u);
   assertMatch(SHELL_HTML, /No binding for 'bootstrap'/u);
   assertMatch(SHELL_HTML, /state\.ready = true/u);
   assertMatch(SHELL_HTML, /function applyBootstrapData\(data\)/u);
   assertEquals([...SHELL_HTML.matchAll(/applyBootstrapData\(data\);/gu)].length, 2);
-  assertMatch(
-    SHELL_HTML,
-    /getElementById\("start-local"\)\.disabled = !environment\.canStart/u,
-  );
+  assertMatch(SHELL_HTML, /if \(!state\.profiles\.length\) openEditor\(\);/u);
   assertMatch(SHELL_HTML, /getElementById\("add-server"\)\.disabled = false/u);
   assertMatch(SHELL_HTML, /logButton\.disabled = false/u);
   assertMatch(SHELL_HTML, /logButton\.title = data\.logDirectory/u);
@@ -60,32 +108,29 @@ Deno.test("shell waits for backend bindings before enabling actions", () => {
   assertFalse(/id="log-directory"/u.test(SHELL_HTML));
 });
 
-Deno.test("shell switches between separate remote and local mode panels", () => {
-  assertEquals([...SHELL_HTML.matchAll(/class="mode-option"/gu)].length, 2);
-  assertMatch(SHELL_HTML, /id="mode-remote"[^>]+aria-pressed="true"/u);
-  assertMatch(SHELL_HTML, /id="mode-local"[^>]+aria-pressed="false"/u);
-  assertMatch(SHELL_HTML, /id="remote-mode-panel"[^>]*>/u);
-  assertMatch(SHELL_HTML, /id="local-mode-panel"[^>]+hidden/u);
-  assertMatch(SHELL_HTML, /<h2 id="remote-mode-title">选择服务器<\/h2>/u);
-  assertMatch(SHELL_HTML, /<h2 id="local-mode-title">本地模式<\/h2>/u);
-  assertMatch(SHELL_HTML, /bindings\.setModePreference\(state\.mode\)/u);
-  assertMatch(SHELL_HTML, /setMode\(data\.mode, false\)/u);
-  assertFalse(/dsh-desktop-(?:mode|last-profile)/u.test(SHELL_HTML));
+Deno.test("shell bootstrap contract omits mode and local environment fields", () => {
+  assertMatch(SHELL_HTML, /state\.profiles = data\.profiles;/u);
+  assertMatch(SHELL_HTML, /state\.ssh = data\.ssh;/u);
+  assertMatch(SHELL_HTML, /state\.updatesSupported = Boolean\(data\.updatesSupported\);/u);
+  assertMatch(SHELL_HTML, /data\.browserBackend/u);
+  assertMatch(SHELL_HTML, /data\.logDirectory/u);
+  assertFalse(/\bdata\.mode\b/u.test(SHELL_HTML));
+  assertFalse(/\bdata\.localEnvironment\b/u.test(SHELL_HTML));
+  for (const binding of ["setModePreference", "connectLocal", "cancelLocalStart"]) {
+    assertFalse(SHELL_HTML.includes(binding), `unexpected binding: ${binding}`);
+  }
   for (
-    const id of [
-      "local-platform",
-      "local-node-version",
-      "local-dsh-version",
-      "local-npx-version",
-      "local-powershell-version",
+    const binding of [
+      "saveProfile",
+      "deleteProfile",
+      "openLogDirectory",
+      "checkForUpdate",
+      "openUpdateReleasePage",
+      "connectProfile",
     ]
   ) {
-    assertMatch(SHELL_HTML, new RegExp(`id="${id}"`, "u"));
+    assertMatch(SHELL_HTML, new RegExp(`bindings\\.${binding}\\(`, "u"));
   }
-  assertMatch(SHELL_HTML, /environment\.powershell\.pwshAvailable/u);
-  assertMatch(SHELL_HTML, /state\.localEnvironment\.launcher === "npx"/u);
-  assertMatch(SHELL_HTML, /npx -y @deepseek-ai\/dsh web --host 127\.0\.0\.1/u);
-  assertMatch(SHELL_HTML, /dsh web --host 127\.0\.0\.1/u);
 });
 
 Deno.test("shell renders Unicode delete confirmation in-page", () => {

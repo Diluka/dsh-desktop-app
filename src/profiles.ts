@@ -3,8 +3,6 @@ import { dirname } from "node:path";
 export const DEFAULT_REMOTE_PORT = 3080;
 const CONFIG_VERSION = 1;
 
-export type ConnectionMode = "remote" | "local";
-
 export interface ServerProfile {
   readonly id: string;
   readonly name: string;
@@ -24,7 +22,6 @@ export interface ServerProfileInput {
 interface ProfileFile {
   readonly version: typeof CONFIG_VERSION;
   readonly profiles: readonly ServerProfile[];
-  readonly mode: ConnectionMode;
   readonly lastProfileId?: string;
 }
 
@@ -39,18 +36,15 @@ export class ProfileValidationError extends Error {
 
 export class ProfileStore {
   #profiles: ServerProfile[];
-  #mode: ConnectionMode;
   #lastProfileId?: string;
 
   private constructor(
     readonly filePath: string,
     profiles: ServerProfile[],
-    mode: ConnectionMode,
     lastProfileId: string | undefined,
     private readonly createId: () => string,
   ) {
     this.#profiles = profiles;
-    this.#mode = mode;
     this.#lastProfileId = lastProfileId;
   }
 
@@ -68,14 +62,13 @@ export class ProfileStore {
         store: new ProfileStore(
           filePath,
           parsed.profiles,
-          parsed.mode,
           parsed.lastProfileId,
           createId,
         ),
       };
     } catch (error) {
       if (error instanceof Deno.errors.NotFound) {
-        return { store: new ProfileStore(filePath, [], "remote", undefined, createId) };
+        return { store: new ProfileStore(filePath, [], undefined, createId) };
       }
       if (!(error instanceof SyntaxError || error instanceof ProfileValidationError)) {
         throw error;
@@ -85,7 +78,7 @@ export class ProfileStore {
       const recoveredBackup = `${filePath}.invalid-${stamp}`;
       await Deno.rename(filePath, recoveredBackup);
       return {
-        store: new ProfileStore(filePath, [], "remote", undefined, createId),
+        store: new ProfileStore(filePath, [], undefined, createId),
         recoveredBackup,
       };
     }
@@ -98,22 +91,9 @@ export class ProfileStore {
     return profiles;
   }
 
-  connectionMode(): ConnectionMode {
-    return this.#mode;
-  }
-
   get(id: string): ServerProfile | undefined {
     const profile = this.#profiles.find((candidate) => candidate.id === id);
     return profile ? { ...profile } : undefined;
-  }
-
-  async setConnectionMode(mode: unknown): Promise<void> {
-    if (mode !== "remote" && mode !== "local") {
-      throw new ProfileValidationError("连接模式无效");
-    }
-    if (this.#mode === mode) return;
-    this.#mode = mode;
-    await this.#persist();
   }
 
   async markUsed(id: string): Promise<void> {
@@ -165,7 +145,6 @@ export class ProfileStore {
     const data: ProfileFile = {
       version: CONFIG_VERSION,
       profiles: this.#profiles,
-      mode: this.#mode,
       ...(this.#lastProfileId ? { lastProfileId: this.#lastProfileId } : {}),
     };
     await Deno.writeTextFile(this.filePath, `${JSON.stringify(data, null, 2)}\n`);
@@ -174,7 +153,6 @@ export class ProfileStore {
 
 function parseProfileFile(raw: string): {
   profiles: ServerProfile[];
-  mode: ConnectionMode;
   lastProfileId?: string;
 } {
   const value: unknown = JSON.parse(raw);
@@ -199,11 +177,10 @@ function parseProfileFile(raw: string): {
       dshWebToken: (profile.dshWebToken ?? "") as string,
     };
   });
-  const mode = record.mode === "local" ? "local" : "remote";
   const lastProfileId = typeof record.lastProfileId === "string" && ids.has(record.lastProfileId)
     ? record.lastProfileId
     : undefined;
-  return { profiles, mode, ...(lastProfileId ? { lastProfileId } : {}) };
+  return { profiles, ...(lastProfileId ? { lastProfileId } : {}) };
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

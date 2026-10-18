@@ -1,7 +1,6 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { closeSync, openSync } from "node:fs";
 import { join } from "node:path";
-import { windowsPowershellCommand } from "./windows_powershell.ts";
 import { assignChildToKillOnCloseJob } from "./windows_job.ts";
 
 const WINDOWS_HIDE_PROCESS = true;
@@ -30,40 +29,11 @@ export interface HiddenCommandOptions {
   readonly stdin?: string;
 }
 
-function resolveProcessLaunch(
-  command: string,
-  args: string[],
-): { command: string; args: string[] } {
-  if (Deno.build.os !== "windows") return { command, args };
-  if (command.toLowerCase().endsWith(".ps1")) {
-    // npm installs .ps1 shims on Windows; PowerShell is built in, so no cmd.exe
-    // dependency is needed, and pwsh (PowerShell 7) is preferred when the user
-    // installed it. Running the .ps1 through PowerShell keeps `node` a direct
-    // child of the PowerShell process, so taskkill /t and the job object can
-    // terminate the whole tree instead of orphaning the node processes that
-    // `dsh web` spawns.
-    return {
-      command: windowsPowershellCommand(),
-      args: [
-        "-NoProfile",
-        "-NonInteractive",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        command,
-        ...args,
-      ],
-    };
-  }
-  return { command, args };
-}
-
 function killManagedProcess(child: ChildProcess, signal: Deno.Signal): void {
-  // On Windows the spawned child is the PowerShell process, and killing only
-  // that process with child.kill leaves its descendants (the node processes
-  // running `dsh web`) running, since Windows does not cascade process
-  // termination to children. Terminate the whole tree with taskkill /t so
-  // nothing is left behind after the window closes.
+  // On Windows the spawned child may be a console process (for example ssh.exe)
+  // whose descendants would survive a plain child.kill, since Windows does not
+  // cascade process termination to children. Terminate the whole tree with
+  // taskkill /t so nothing is left behind after the window closes.
   if (Deno.build.os === "windows" && child.pid && child.exitCode === null) {
     const killer = spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
       windowsHide: WINDOWS_HIDE_PROCESS,
@@ -81,12 +51,11 @@ export function spawnHiddenProcess(
   args: string[],
   logDirectory: string,
 ): ManagedHiddenProcess {
-  const launch = resolveProcessLaunch(command, args);
   const outputFile = join(logDirectory, `dsh-desktop-child-${crypto.randomUUID()}.log`);
   const outputFd = openSync(outputFile, "a", 0o600);
   const child = (() => {
     try {
-      return spawn(launch.command, launch.args, {
+      return spawn(command, args, {
         windowsHide: WINDOWS_HIDE_PROCESS,
         stdio: ["ignore", outputFd, outputFd],
       });
@@ -155,8 +124,7 @@ export async function runHiddenCommand(
 ): Promise<HiddenCommandOutput> {
   const timeoutMilliseconds = typeof options === "number" ? options : options.timeoutMilliseconds;
   const stdin = typeof options === "number" ? undefined : options.stdin;
-  const launch = resolveProcessLaunch(command, args);
-  const child = spawn(launch.command, launch.args, {
+  const child = spawn(command, args, {
     windowsHide: WINDOWS_HIDE_PROCESS,
     stdio: [stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
   });

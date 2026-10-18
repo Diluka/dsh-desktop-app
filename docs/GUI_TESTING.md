@@ -1,7 +1,7 @@
 # Windows / Linux / macOS GUI 验证
 
-本文用于验证本地与远程模式。无头 CI 负责格式、lint、类型、单测和打包；本页覆盖必须在真实桌面环境
-观察的窗口、CEF/WebView2、OpenSSH、npx 与 DSH Web 行为。
+本文用于验证远程连接。无头 CI 负责格式、lint、类型、单测和打包；本页覆盖必须在真实桌面环境
+观察的窗口、CEF/WebView2、OpenSSH 与 DSH Web 行为。
 
 ## 准备
 
@@ -99,7 +99,7 @@ tail -f "$(ls -t "$log_dir"/dsh-desktop-*.jsonl | head -n 1)"
 
 1. 启动应用，确认窗口保持原生默认尺寸，不发生可见的二次尺寸调整。
 2. 确认出现“选择服务器”页面；CEF 版左侧显示 `Chromium / CEF`，WebView2 版显示
-   `Microsoft Edge WebView2`，连接方式均显示 `OpenSSH`。
+   `Microsoft Edge WebView2`。
 3. 添加 SSH Host 别名，端口保留 `3080`，保存后关闭并重新打开应用。
 4. 确认服务器仍在列表中，且页面没有本地端口或内部 URL 字段。
 
@@ -167,8 +167,7 @@ tail -f "$(ls -t "$log_dir"/dsh-desktop-*.jsonl | head -n 1)"
 
 ### 9. Windows 隐藏 OpenSSH 窗口
 
-在 Windows 上分别观察应用启动时的 `ssh -V` 探测、点击“连接”后的长连接，以及点击本地启动后的 npx
-fallback。
+在 Windows 上分别观察应用启动时的 `ssh -V` 探测和点击“连接”后的长连接。
 
 预期全程不出现可见的 `cmd.exe`/控制台闪窗；连接、错误提示、日志和关闭时的子进程清理行为保持不变。
 
@@ -182,24 +181,6 @@ fallback。
 预期 Windows 与 macOS 均显示带细边框的黑色底、白色鱼形项目图标，而不是系统或浏览器默认图标；macOS
 外框保留透明留白，视觉尺寸与相邻标准应用协调。图标在浅色和深色系统外观中均清晰可辨。关闭应用后用新分发包
 完整覆盖旧目录，确认应用可正常启动且服务器配置仍保留。
-
-### 11. 本地模式、npx 回退与终止
-
-1. 从 Finder 启动应用，确认窗口立即出现；打开“本地模式”，环境检测完成后显示平台、Node.js、DSH CLI 和
-   npx 版本，条件不足时启动按钮禁用。
-2. 检查应用启动阶段的进程与网络，确认只执行各工具自身的 `--version`，不会执行
-   `npx -y @deepseek-ai/dsh --version` 或下载 DSH 包。
-3. PATH 中存在 `dsh` 时点击“启动本地 DSH”，确认直接加载本地 DSH Web。
-4. 在隔离测试环境中隐藏 `dsh`、保留可运行的 npx，再次点击“启动本地 DSH”。
-5. 确认此时才开始 npx 下载；等待弹窗提示首次下载可能超过 30 分钟、不自动超时，并显示“终止启动”按钮。
-6. 在 npx 仍运行时点击“终止启动”，确认弹窗关闭、页面提示已终止，且不残留 `npx`/DSH 子进程。
-7. 再次启动并允许 npx 完成，确认同一窗口加载 DSH Web。
-8. 关闭窗口，确认本地 `dsh`/`node` 子进程同时退出（Windows 上尤其检查 `node.exe` 未残留）。
-9. 同时隐藏 `dsh` 和 npx，确认启动按钮保持禁用并显示缺失环境。
-
-预期 JSONL 包含 `local_dsh.npx_fallback`，成功或失败事件包含 `childOutputFile`，关闭时包含
-`local_dsh.exited` 且 `stopRequested` 为 `true`。npx 原始下载输出不会复制到 JSONL，仅写入对应的
-`.child.log`。
 
 ## 回报模板
 

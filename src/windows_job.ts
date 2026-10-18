@@ -3,7 +3,7 @@
 // cleanup finishes (observed on Windows), so relying on taskkill in shutdown is
 // not enough. Assigning the child to a job object with
 // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE makes the OS terminate the whole tree
-// (e.g. powershell -> node -> node) the moment this process exits, because the
+// (for example the SSH tunnel process) the moment this process exits, because the
 // OS closes every handle owned by the process and that closes the job.
 
 const KILL_ON_JOB_CLOSE = 0x2000;

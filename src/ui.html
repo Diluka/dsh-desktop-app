@@ -156,53 +156,6 @@
       letter-spacing: 0.04em;
     }
 
-    .masthead-modes {
-      display: grid;
-      gap: 8px;
-      margin-top: 34px;
-    }
-
-    .mode-option {
-      width: 100%;
-      padding: 12px;
-      border: 1px solid transparent;
-      border-radius: 12px;
-      color: var(--text);
-      text-align: left;
-      background: var(--surface-selected);
-      transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
-    }
-    .mode-option:hover {
-      border-color: var(--border-hover);
-      background: var(--surface-hover);
-    }
-    .mode-option[aria-pressed="true"] {
-      border-color: var(--brand);
-      background: var(--surface);
-      box-shadow: inset 3px 0 0 var(--brand), var(--shadow-card);
-    }
-
-    .mode-label {
-      display: block;
-      margin: 0 0 3px;
-      color: var(--text-tertiary);
-      font-size: 12px;
-      line-height: 18px;
-    }
-    .mode-title {
-      display: block;
-      font-size: 14px;
-      font-weight: 600;
-      line-height: 22px;
-    }
-    .mode-description {
-      display: block;
-      margin-top: 3px;
-      color: var(--text-secondary);
-      font-size: 12px;
-      line-height: 18px;
-    }
-
     .masthead-footer {
       display: grid;
       gap: 14px;
@@ -386,66 +339,6 @@
     .update-banner-message {
       flex: 1;
       color: var(--text-secondary);
-    }
-
-    .local-environment {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 1px;
-      margin-bottom: 16px;
-      padding: 1px;
-      border-radius: 16px;
-      overflow: hidden;
-      background: var(--border);
-    }
-    .environment-item {
-      min-width: 0;
-      padding: 16px 18px;
-      background: var(--surface);
-    }
-    .environment-item span {
-      display: block;
-      margin-bottom: 4px;
-      color: var(--text-tertiary);
-      font-size: 12px;
-      line-height: 18px;
-    }
-    .environment-item strong {
-      display: block;
-      overflow-wrap: anywhere;
-      font-family: "SF Mono", "JetBrains Mono", "Fira Code", Consolas, monospace;
-      font-size: 13px;
-      font-weight: 500;
-      line-height: 20px;
-    }
-    .environment-item strong.unavailable {
-      color: var(--danger);
-      font-family: inherit;
-    }
-
-    .local-start-card {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      align-items: center;
-      gap: 28px;
-      padding: 24px;
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      background: var(--surface);
-      box-shadow: var(--shadow-card);
-    }
-    .local-start-card h3 {
-      margin: 0;
-      font-size: 18px;
-      font-weight: 600;
-      line-height: 26px;
-    }
-    .local-start-card p {
-      max-width: 54ch;
-      margin: 6px 0 0;
-      color: var(--text-secondary);
-      font-size: 14px;
-      line-height: 22px;
     }
 
     .summary-line {
@@ -724,12 +617,6 @@
       margin-right: 7px;
       color: var(--text-tertiary);
     }
-    .connecting-actions {
-      display: flex;
-      justify-content: flex-end;
-      margin: 20px 0 0 34px;
-    }
-
     @keyframes spin {
       to {
         transform: rotate(360deg);
@@ -746,9 +633,6 @@
         padding: 16px 18px;
         border-right: 0;
         border-bottom: 1px solid var(--border);
-      }
-      .masthead-modes {
-        margin-top: 18px;
       }
       .masthead-footer {
         margin-top: 18px;
@@ -776,13 +660,8 @@
       .header-actions .button {
         flex: 1 1 100%;
       }
-      .local-environment,
-      .local-start-card,
       .server-card {
         grid-template-columns: 1fr;
-      }
-      .local-start-card .button {
-        width: 100%;
       }
       .server-actions {
         justify-content: flex-start;
@@ -811,23 +690,7 @@
   <body>
     <div class="shell">
       <aside class="masthead">
-        <div>
-          <div class="brand-mark">deepseek</div>
-          <div class="masthead-modes" role="group" aria-label="连接方式">
-            <button id="mode-remote" class="mode-option" type="button" data-mode="remote"
-              aria-controls="remote-mode-panel" aria-pressed="true">
-              <span class="mode-label">连接方式</span>
-              <span class="mode-title">远程模式</span>
-              <span class="mode-description">通过本机 OpenSSH 连接远程 DSH Web。</span>
-            </button>
-            <button id="mode-local" class="mode-option" type="button" data-mode="local"
-              aria-controls="local-mode-panel" aria-pressed="false">
-              <span class="mode-label">连接方式</span>
-              <span class="mode-title">本地模式</span>
-              <span class="mode-description">直接启动本机 dsh web。</span>
-            </button>
-          </div>
-        </div>
+        <div class="brand-mark">deepseek</div>
         <div class="masthead-footer">
           <div class="theme-picker">
             <span id="theme-label" class="theme-label">外观</span>
@@ -841,8 +704,6 @@
           <div class="runtime-note">
             <div
               class="runtime-row"><span>浏览器</span><strong id="browser-backend">Chromium / CEF</strong></div>
-            <div
-              class="runtime-row"><span>连接</span><strong id="connection-backend">OpenSSH</strong></div>
             <button id="open-log-directory" class="runtime-row runtime-log-button" type="button"
               title="日志目录正在初始化..." aria-label="打开日志目录" disabled>
               <span>日志</span><strong>打开目录</strong>
@@ -863,10 +724,10 @@
               aria-label="忽略本次更新">忽略</button>
           </div>
 
-          <section id="remote-mode-panel" class="mode-panel" aria-labelledby="remote-mode-title">
+          <section id="server-panel" aria-labelledby="server-panel-title">
             <header class="workspace-header">
               <div>
-                <h2 id="remote-mode-title">选择服务器</h2>
+                <h2 id="server-panel-title">选择服务器</h2>
                 <p class="page-description">通过 SSH Host 建立安全连接。</p>
               </div>
               <div class="header-actions">
@@ -933,50 +794,8 @@
             </section>
           </section>
 
-          <section id="local-mode-panel" class="mode-panel" aria-labelledby="local-mode-title"
-            hidden>
-            <header class="workspace-header">
-              <div>
-                <h2 id="local-mode-title">本地模式</h2>
-                <p class="page-description">在此设备上启动 DSH Web。</p>
-              </div>
-            </header>
-            <div class="local-environment" aria-label="本地环境">
-              <div class="environment-item">
-                <span>平台</span>
-                <strong id="local-platform">正在检测...</strong>
-              </div>
-              <div class="environment-item">
-                <span>Node.js</span>
-                <strong id="local-node-version">正在检测...</strong>
-              </div>
-              <div class="environment-item">
-                <span>DSH CLI</span>
-                <strong id="local-dsh-version">正在检测...</strong>
-              </div>
-              <div class="environment-item">
-                <span>npx</span>
-                <strong id="local-npx-version">正在检测...</strong>
-              </div>
-              <div class="environment-item" id="local-powershell-row">
-                <span>PowerShell</span>
-                <strong id="local-powershell-version">正在检测...</strong>
-              </div>
-            </div>
-            <div class="local-start-card">
-              <div>
-                <span class="mode-label">本机服务</span>
-                <h3>启动 DSH Web</h3>
-                <p id="local-start-description">正在检测本地启动条件...</p>
-              </div>
-              <button id="start-local" class="button primary" type="button"
-                disabled>启动本地 DSH</button>
-            </div>
-          </section>
-
           <footer class="diagnostics">
-            <div
-              id="diagnostic-note">认证使用 <code>.ssh/config</code>、密钥或 <code>ssh-agent</code>；应用不处理密码。</div>
+            <div>认证使用 <code>.ssh/config</code>、密钥或 <code>ssh-agent</code>；应用不处理密码。</div>
           </footer>
         </div>
       </main>
@@ -1009,10 +828,6 @@
           <li>验证远端 DSH Web</li>
           <li>需要时尝试恢复 DSH Web token</li>
         </ul>
-        <div class="connecting-actions">
-          <button id="cancel-local-start" class="button secondary" type="button"
-            hidden>终止启动</button>
-        </div>
       </div>
     </div>
 
@@ -1023,18 +838,11 @@
       var state = {
         profiles: [],
         ssh: { available: false },
-        localEnvironment: { canStart: false },
         editingId: null,
-        mode: "remote",
         ready: false,
         updatesSupported: false,
         updateBusy: false,
       };
-      var modeButtons = Array.from(document.querySelectorAll(".mode-option"));
-      var remoteModePanel = document.getElementById("remote-mode-panel");
-      var localModePanel = document.getElementById("local-mode-panel");
-      var connectionBackend = document.getElementById("connection-backend");
-      var diagnosticNote = document.getElementById("diagnostic-note");
       var list = document.getElementById("server-list");
       var empty = document.getElementById("empty-state");
       var editor = document.getElementById("editor");
@@ -1043,8 +851,6 @@
       var notice = document.getElementById("notice");
       var toast = document.getElementById("toast");
       var connecting = document.getElementById("connecting");
-      var cancelLocalButton = document.getElementById("cancel-local-start");
-      var localCancelRequested = false;
       var deleteConfirmation = document.getElementById("delete-confirmation");
       var deleteConfirmationMessage = document.getElementById("delete-confirmation-message");
       var updateBanner = document.getElementById("update-banner");
@@ -1064,14 +870,6 @@
       });
       applyTheme(themePreference, false);
 
-      modeButtons.forEach(function (button) {
-        button.addEventListener("click", function () {
-          setMode(button.dataset.mode, true);
-        });
-      });
-      setMode(state.mode, false);
-      document.getElementById("start-local").addEventListener("click", connectLocal);
-      cancelLocalButton.addEventListener("click", cancelLocalStart);
       document.getElementById("add-server").addEventListener("click", function () {
         openEditor();
       });
@@ -1111,30 +909,6 @@
         }
       }
 
-      function setMode(mode, persist) {
-        var local = mode === "local";
-        state.mode = local ? "local" : "remote";
-        modeButtons.forEach(function (button) {
-          button.setAttribute("aria-pressed", String(button.dataset.mode === state.mode));
-        });
-        remoteModePanel.hidden = local;
-        localModePanel.hidden = !local;
-        connectionBackend.textContent = local ? "dsh / npx" : "OpenSSH";
-        diagnosticNote.textContent = local
-          ? "本地模式优先使用 dsh；不可用时通过 npx 启动。"
-          : "认证使用 .ssh/config、密钥或 ssh-agent；应用不处理密码。";
-        if (persist && state.ready) {
-          globalThis.bindings.setModePreference(state.mode).catch(function (error) {
-            showToast(errorMessage(error));
-          });
-        }
-        if (!state.ready) return;
-        notice.hidden = true;
-        if (!local && !state.ssh.available) {
-          showNotice(state.ssh.installHelp || "未找到 OpenSSH Client，请安装后重启应用。");
-        }
-      }
-
       async function bootstrap() {
         try {
           if (!globalThis.bindings || typeof globalThis.bindings.bootstrap !== "function") {
@@ -1144,7 +918,7 @@
           var data = await globalThis.bindings.bootstrap();
           applyBootstrapData(data);
           if (data.startupNotice) showNotice(data.startupNotice);
-          if (state.mode === "remote" && !state.profiles.length) openEditor();
+          if (!state.profiles.length) openEditor();
         } catch (error) {
           var detail = errorMessage(error);
           if (detail.indexOf("No binding for 'bootstrap'") !== -1) {
@@ -1160,9 +934,7 @@
         var firstBootstrap = !state.ready;
         state.profiles = data.profiles;
         state.ssh = data.ssh;
-        state.localEnvironment = data.localEnvironment;
         state.updatesSupported = Boolean(data.updatesSupported);
-        if (firstBootstrap) setMode(data.mode, false);
         state.ready = true;
         document.getElementById("add-server").disabled = false;
         var logButton = document.getElementById("open-log-directory");
@@ -1171,7 +943,6 @@
         logButton.setAttribute("aria-label", "打开日志目录：" + data.logDirectory);
         document.getElementById("browser-backend").textContent = data.browserBackend;
         renderSshStatus();
-        renderLocalEnvironment();
         renderProfiles();
         if (firstBootstrap && state.updatesSupported) void checkForUpdate();
       }
@@ -1211,44 +982,9 @@
         element.lastElementChild.textContent = state.ssh.available
           ? version.indexOf("OpenSSH") === 0 ? version : "OpenSSH " + (version || "可用")
           : "OpenSSH 未安装";
-        if (!state.ssh.available && state.mode === "remote") {
+        if (!state.ssh.available) {
           showNotice(state.ssh.installHelp || "未找到 OpenSSH Client，请安装后重启应用。");
         }
-      }
-
-      function renderLocalEnvironment() {
-        var environment = state.localEnvironment;
-        setEnvironmentValue("local-platform", environment.platform);
-        setEnvironmentValue("local-node-version", environment.nodeVersion);
-        setEnvironmentValue("local-dsh-version", environment.dshVersion);
-        setEnvironmentValue("local-npx-version", environment.npxVersion);
-        var psRow = document.getElementById("local-powershell-row");
-        var psVersion = document.getElementById("local-powershell-version");
-        if (environment.powershell) {
-          psRow.hidden = false;
-          psVersion.textContent = environment.powershell.pwshAvailable
-            ? "PowerShell 7 (pwsh)"
-            : "PowerShell 5.1";
-          psVersion.classList.toggle("unavailable", !environment.powershell.pwshAvailable);
-        } else {
-          psRow.hidden = true;
-        }
-        document.getElementById("start-local").disabled = !environment.canStart;
-        document.getElementById("local-start-description").textContent = environment.launcher === "dsh"
-          ? environment.powershell && !environment.powershell.pwshAvailable
-            ? "将使用已安装的 dsh CLI 启动；推荐安装 PowerShell 7 (pwsh) 以获得更好的兼容性。"
-            : "将使用已安装的 dsh CLI 启动，不会下载额外包。"
-          : environment.launcher === "npx"
-          ? environment.powershell && !environment.powershell.pwshAvailable
-            ? "未找到 dsh；点击后通过 npx 下载并启动 DSH。推荐安装 PowerShell 7 (pwsh)。"
-            : "未找到 dsh；点击后才会通过 npx 下载并启动 DSH。"
-          : "需要可用的 dsh 或 npx，才能启动本地模式。";
-      }
-
-      function setEnvironmentValue(id, value) {
-        var element = document.getElementById(id);
-        element.textContent = value || "不可用";
-        element.classList.toggle("unavailable", !value);
       }
 
       function renderProfiles() {
@@ -1405,12 +1141,7 @@
           return item.id !== profile.id;
         }));
         renderProfiles();
-        showConnecting("正在连接", "正在连接 “" + profile.name + "”", [
-          "读取本机 .ssh/config",
-          "建立回环端口转发",
-          "验证远端 DSH Web",
-          "需要时尝试恢复 DSH Web token",
-        ]);
+        showConnecting("正在连接", "正在连接 “" + profile.name + "”");
         try {
           await globalThis.bindings.connectProfile(profile.id);
         } catch (error) {
@@ -1423,64 +1154,9 @@
         }
       }
 
-      async function connectLocal() {
-        localCancelRequested = false;
-        var usesNpx = state.localEnvironment.launcher === "npx";
-        showConnecting(
-          usesNpx ? "正在通过 npx 启动" : "正在通过 dsh 启动",
-          usesNpx ? "当前方案：npx -y @deepseek-ai/dsh web" : "当前方案：dsh web",
-          usesNpx
-            ? [
-              "执行 npx -y @deepseek-ai/dsh web --host 127.0.0.1 --port <自动分配> --no-open",
-              "首次下载可能超过 30 分钟；不会自动超时",
-              "等待期间可随时点击“终止启动”",
-            ]
-            : [
-              "执行 dsh web --host 127.0.0.1 --port <自动分配> --no-open",
-              "使用已检测到的 dsh CLI，不下载额外包",
-              "等待期间可随时点击“终止启动”",
-            ],
-          true,
-        );
-        try {
-          await globalThis.bindings.connectLocal();
-        } catch (error) {
-          connecting.hidden = true;
-          if (localCancelRequested) showToast("本地模式启动已终止");
-          else alert(errorMessage(error));
-        }
-      }
-
-      async function cancelLocalStart() {
-        if (cancelLocalButton.disabled) return;
-        localCancelRequested = true;
-        cancelLocalButton.disabled = true;
-        cancelLocalButton.textContent = "正在终止...";
-        try {
-          var accepted = await globalThis.bindings.cancelLocalStart();
-          if (!accepted) {
-            localCancelRequested = false;
-            cancelLocalButton.disabled = false;
-            cancelLocalButton.textContent = "终止启动";
-            showToast("当前没有正在启动的本地模式");
-          }
-        } catch (error) {
-          localCancelRequested = false;
-          cancelLocalButton.disabled = false;
-          cancelLocalButton.textContent = "终止启动";
-          showToast(errorMessage(error));
-        }
-      }
-
-      function showConnecting(title, target, steps, cancellable) {
+      function showConnecting(title, target) {
         document.getElementById("connecting-title").textContent = title;
         document.getElementById("connecting-target").textContent = target;
-        Array.from(document.querySelectorAll(".connecting-steps li")).forEach(function (item, index) {
-          item.textContent = steps[index] || "";
-        });
-        cancelLocalButton.hidden = !cancellable;
-        cancelLocalButton.disabled = false;
-        cancelLocalButton.textContent = "终止启动";
         connecting.hidden = false;
       }
 
