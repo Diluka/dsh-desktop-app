@@ -2,13 +2,6 @@ import { setTimeout as delay } from "node:timers/promises";
 import { resolveAppPaths } from "./src/app_paths.ts";
 import { BUILD_COMMIT } from "./src/build_info.ts";
 import { readProcessOutputTail, spawnHiddenProcess } from "./src/hidden_process.ts";
-import {
-  LocalDshError,
-  localDshInstallError,
-  type LocalDshWeb,
-  probeLocalDshEnvironment,
-  startLocalDshWeb,
-} from "./src/local_dsh.ts";
 import { createLogger } from "./src/logger.ts";
 import { openDirectory, openExternalUrl } from "./src/open_directory.ts";
 import { ProfileStore, type ServerProfileInput } from "./src/profiles.ts";
@@ -64,31 +57,13 @@ async function startDesktopWithShellServer(
     }, "Recovered from an invalid profile file");
   }
 
-  const environmentReady = Promise.all([
-    probeOpenSsh(),
-    probeLocalDshEnvironment(),
-  ]).then(([ssh, localDshEnvironment]) => {
-    const localDshLauncher = localDshEnvironment.launcher;
+  const sshReady = probeOpenSsh().then((ssh) => {
     logger.info({
       event: "ssh.probe",
       available: ssh.available,
       version: ssh.version ?? "unknown",
     }, ssh.available ? "OpenSSH Client is available" : "OpenSSH Client is unavailable");
-    logger.info({
-      event: "local_dsh.probe",
-      available: Boolean(localDshLauncher),
-      launcher: localDshLauncher?.kind ?? "unavailable",
-      loginShell: Deno.build.os === "windows"
-        ? "not-applicable"
-        : Deno.env.get("SHELL") ?? (Deno.build.os === "darwin" ? "/bin/zsh" : "/bin/sh"),
-      nodeVersion: localDshEnvironment.node?.version ?? "unavailable",
-      nodeCommand: localDshEnvironment.node?.command ?? "unavailable",
-      dshVersion: localDshEnvironment.dsh?.version ?? "unavailable",
-      dshCommand: localDshEnvironment.dsh?.command ?? "unavailable",
-      npxVersion: localDshEnvironment.npx?.version ?? "unavailable",
-      npxCommand: localDshEnvironment.npx?.command ?? "unavailable",
-    }, localDshLauncher ? "Local DSH launcher is available" : "Local DSH launcher is unavailable");
-    return { ssh, localDshEnvironment, localDshLauncher };
+    return ssh;
   });
 
   const iconLookupTitle = Deno.build.os === "windows" ? `DSH Desktop ${Deno.pid}` : "DSH Desktop";
@@ -114,8 +89,6 @@ async function startDesktopWithShellServer(
   }
 
   let activeTunnel: SshTunnel | undefined;
-  let activeLocal: LocalDshWeb | undefined;
-  let localStartController: AbortController | undefined;
   let remoteStartController: AbortController | undefined;
   let connecting = false;
   let shellBindingsActive = false;
@@ -143,20 +116,10 @@ async function startDesktopWithShellServer(
     if (shellBindingsActive) return;
     // Deno 2.9 BrowserWindow.bind requires handlers to return a Promise.
     window.bind("bootstrap", async () => {
-      const { ssh, localDshEnvironment, localDshLauncher } = await environmentReady;
+      const ssh = await sshReady;
       return {
         profiles: store.list(),
-        mode: store.connectionMode(),
         ssh,
-        localEnvironment: {
-          platform: `${Deno.build.os} ${Deno.build.arch}`,
-          nodeVersion: localDshEnvironment.node?.version,
-          dshVersion: localDshEnvironment.dsh?.version,
-          npxVersion: localDshEnvironment.npx?.version,
-          powershell: localDshEnvironment.powershell,
-          launcher: localDshLauncher?.kind,
-          canStart: Boolean(localDshLauncher),
-        },
         logDirectory: paths.logDirectory,
         buildCommit: BUILD_COMMIT,
         updatesSupported: BUILD_COMMIT !== "development" && Deno.build.os !== "linux",
@@ -191,10 +154,6 @@ async function startDesktopWithShellServer(
         }, "Server profile was deleted");
       }
       return deleted;
-    });
-    window.bind("setModePreference", async (mode: unknown) => {
-      await store.setConnectionMode(mode);
-      return null;
     });
     window.bind("openLogDirectory", async () => {
       try {
@@ -244,16 +203,6 @@ async function startDesktopWithShellServer(
       await connectProfile(id);
       return null;
     });
-    window.bind("connectLocal", async () => {
-      await connectLocal();
-      return null;
-    });
-    window.bind("cancelLocalStart", () => {
-      const controller = localStartController;
-      if (!controller) return Promise.resolve(false);
-      controller.abort();
-      return Promise.resolve(true);
-    });
     shellBindingsActive = true;
   }
 
@@ -262,13 +211,10 @@ async function startDesktopWithShellServer(
     window.unbind("bootstrap");
     window.unbind("saveProfile");
     window.unbind("deleteProfile");
-    window.unbind("setModePreference");
     window.unbind("openLogDirectory");
     window.unbind("checkForUpdate");
     window.unbind("openUpdateReleasePage");
     window.unbind("connectProfile");
-    window.unbind("connectLocal");
-    window.unbind("cancelLocalStart");
     shellBindingsActive = false;
   }
 
@@ -280,7 +226,7 @@ async function startDesktopWithShellServer(
 
   async function connectProfile(id: unknown): Promise<void> {
     if (connecting) throw new Error("已有连接正在建立，请稍候");
-    const { ssh } = await environmentReady;
+    const ssh = await sshReady;
     if (!ssh.available) throw new Error(ssh.installHelp ?? "未找到 OpenSSH Client");
     if (typeof id !== "string") throw new Error("服务器 ID 无效");
 
@@ -303,10 +249,6 @@ async function startDesktopWithShellServer(
         );
       }
       controller.signal.throwIfAborted();
-      if (activeLocal) {
-        await activeLocal.stop();
-        activeLocal = undefined;
-      }
       const tunnel = await connectRemoteDsh(profile, logger, {
         spawn: spawnChild,
         tunnel: activeTunnel,
@@ -339,7 +281,7 @@ async function startDesktopWithShellServer(
       if (shuttingDown || window.isClosed() || activeTunnel !== tunnel) return;
       if (!tunnel.matches(profile)) throw await tunnel.failureFromExit(await tunnel.exited, logger);
 
-      // The DSH Web page must not inherit privileged bindings from the local selector.
+      // The DSH Web page must not inherit privileged bindings from the selector page.
       unbindShell();
       try {
         window.navigate(tunnel.url);
@@ -364,73 +306,6 @@ async function startDesktopWithShellServer(
       if (observedTunnel && activeTunnel === observedTunnel && !controller.signal.aborted) {
         void observeTunnel(observedTunnel, profile.id, profile.name, controller.signal);
       }
-    }
-  }
-
-  async function connectLocal(): Promise<void> {
-    if (connecting) throw new Error("已有连接正在建立，请稍候");
-    const { localDshLauncher } = await environmentReady;
-    if (!localDshLauncher) throw localDshInstallError();
-    if (shuttingDown || window.isClosed()) return;
-    if (connecting) throw new Error("已有连接正在建立，请稍候");
-    remoteStartController?.abort();
-    remoteStartController = undefined;
-    const controller = new AbortController();
-    localStartController = controller;
-    connecting = true;
-    try {
-      if (activeTunnel) {
-        await activeTunnel.stop();
-        activeTunnel = undefined;
-      }
-      if (activeLocal) {
-        await activeLocal.stop();
-        activeLocal = undefined;
-      }
-      if (localDshLauncher.kind === "npx") {
-        logger.warn(
-          { event: "local_dsh.npx_fallback", command: localDshLauncher.command },
-          "Local dsh command was unavailable; using npx",
-        );
-      }
-      const local = await startLocalDshWeb(logger, localDshLauncher, {
-        spawn: spawnChild,
-        signal: controller.signal,
-      });
-      activeLocal = local;
-
-      // The DSH Web page must not inherit privileged bindings from the local selector.
-      unbindShell();
-      try {
-        window.navigate(local.url);
-      } catch (error) {
-        bindShell();
-        activeLocal = undefined;
-        await local.stop();
-        throw error;
-      }
-      void observeLocal(local);
-    } catch (error) {
-      if (error instanceof LocalDshError && error.code === "START_CANCELLED") {
-        logger.info({ event: "local_dsh.start_cancelled" }, "Local DSH Web start was cancelled");
-        throw error;
-      }
-      if (
-        localDshLauncher.kind === "npx" && error instanceof LocalDshError &&
-        error.code === "DSH_WEB_FAILED"
-      ) {
-        logger.warn({ event: "local_dsh.npx_failed", err: error }, "npx launcher failed");
-        throw localDshInstallError();
-      }
-      logger.error(
-        { event: "local_dsh.connect_failed", err: error },
-        "Failed to start local DSH Web",
-      );
-      if (error instanceof LocalDshError) throw error;
-      throw new Error("本地 DSH Web 启动失败，详细信息已写入日志");
-    } finally {
-      if (localStartController === controller) localStartController = undefined;
-      connecting = false;
     }
   }
 
@@ -482,42 +357,15 @@ async function startDesktopWithShellServer(
     }
   }
 
-  async function observeLocal(local: LocalDshWeb): Promise<void> {
-    const exit = await local.exited;
-    logger[exit.stopRequested ? "info" : "warn"]({
-      event: "local_dsh.exited",
-      code: exit.code,
-      signal: exit.signal,
-      stopRequested: exit.stopRequested,
-      childOutputFile: local.outputFile,
-      ...(exit.error ? { err: exit.error } : {}),
-    }, exit.stopRequested ? "Local DSH Web stopped" : "Local DSH Web exited unexpectedly");
-
-    if (exit.stopRequested) return;
-    if (activeLocal !== local) return;
-    activeLocal = undefined;
-    if (shuttingDown || window.isClosed()) return;
-
-    const detail = lastOutputLine(await readProcessOutputTail(local.outputFile));
-    startupNotice = detail ? `本地 DSH Web 已退出：${detail}` : "本地 DSH Web 已退出，请重新启动。";
-    bindShell();
-    window.navigate(shellUrl);
-  }
-
   async function shutdown(): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
     logger.info({ event: "app.shutdown" }, "DSH Desktop is shutting down");
-    localStartController?.abort();
-    localStartController = undefined;
     remoteStartController?.abort();
     remoteStartController = undefined;
     const tunnel = activeTunnel;
-    const local = activeLocal;
     activeTunnel = undefined;
-    activeLocal = undefined;
     await tunnel?.stop();
-    await local?.stop();
     await shellServer.shutdown();
     releaseWindowIcon?.();
     releaseWindowIcon = undefined;

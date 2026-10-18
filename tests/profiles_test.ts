@@ -101,39 +101,34 @@ Deno.test("ProfileStore persists the DSH Web token field exactly", async () => {
   assertEquals(JSON.parse(await Deno.readTextFile(filePath)).profiles, [emptyToken]);
 });
 
-Deno.test("ProfileStore persists the selected mode and last used profile", async () => {
+Deno.test("ProfileStore persists the last used profile without a connection mode", async () => {
   const filePath = await tempFile("servers.json");
   let nextId = 1;
   const { store } = await ProfileStore.open(filePath, { createId: () => `profile-${nextId++}` });
   const first = await store.save({ name: "First", sshTarget: "first" });
   const second = await store.save({ name: "Second", sshTarget: "second" });
 
-  assertEquals(store.connectionMode(), "remote");
-  await store.setConnectionMode("local");
   await store.markUsed(second.id);
   assertEquals(store.list(), [second, first]);
 
   const persisted = JSON.parse(await Deno.readTextFile(filePath));
-  assertEquals(persisted.mode, "local");
+  assertEquals("mode" in persisted, false);
   assertEquals(persisted.lastProfileId, second.id);
 
   const reopened = (await ProfileStore.open(filePath)).store;
-  assertEquals(reopened.connectionMode(), "local");
   assertEquals(reopened.list(), [second, first]);
   await reopened.delete(second.id);
   assertEquals(reopened.list(), [first]);
   assertEquals(JSON.parse(await Deno.readTextFile(filePath)).lastProfileId, undefined);
 
-  await assertRejects(() => reopened.setConnectionMode("invalid"), ProfileValidationError);
   await assertRejects(() => reopened.markUsed("missing"), ProfileValidationError);
 });
 
-Deno.test("ProfileStore opens version 1 files without saved preferences", async () => {
+Deno.test("ProfileStore opens empty version 1 files", async () => {
   const filePath = await tempFile("servers.json");
   await Deno.writeTextFile(filePath, JSON.stringify({ version: 1, profiles: [] }));
 
   const { store, recoveredBackup } = await ProfileStore.open(filePath);
-  assertEquals(store.connectionMode(), "remote");
   assertEquals(store.list(), []);
   assertEquals(recoveredBackup, undefined);
 });
@@ -152,13 +147,13 @@ Deno.test("ProfileStore backs up corrupt config and recovers empty store", async
   await assertRejects(() => Deno.readTextFile(filePath), Deno.errors.NotFound);
 });
 
-Deno.test("ProfileStore opens version 1 profiles without DSH Web tokens", async () => {
+Deno.test("ProfileStore ignores the removed mode field and defaults missing DSH Web tokens", async () => {
   const filePath = await tempFile("servers.json");
   await Deno.writeTextFile(
     filePath,
     JSON.stringify({
       version: 1,
-      mode: "remote",
+      mode: "local",
       profiles: [{
         id: "profile-1",
         name: "Production",
@@ -177,6 +172,9 @@ Deno.test("ProfileStore opens version 1 profiles without DSH Web tokens", async 
     remotePort: 3080,
     dshWebToken: "",
   }]);
+
+  await store.markUsed("profile-1");
+  assertEquals("mode" in JSON.parse(await Deno.readTextFile(filePath)), false);
 });
 
 Deno.test("ProfileStore backs up config with boolean port", async () => {

@@ -28,21 +28,6 @@ Deno.test("spawnHiddenProcess redirects output to a dedicated file", async () =>
   assertStringIncludes(await readProcessOutputTail(child.outputFile), "stderr line");
 });
 
-Deno.test("spawnHiddenProcess runs Windows .ps1 shims through PowerShell", async () => {
-  if (Deno.build.os !== "windows") return;
-  const directory = await Deno.makeTempDir();
-  const script = join(directory, "fixture.ps1");
-  await Deno.writeTextFile(script, "Write-Output 'ps1 output'\n");
-
-  const child = spawnHiddenProcess(script, [], directory);
-
-  assertEquals(await child.status, { success: true, code: 0, signal: null });
-  assertStringIncludes(await Deno.readTextFile(child.outputFile), "ps1 output");
-  const probe = await runHiddenCommand(script, []);
-  assertEquals(probe.success, true);
-  assertStringIncludes(probe.stdout, "ps1 output");
-});
-
 Deno.test("runHiddenCommand enforces an optional timeout", async () => {
   const started = performance.now();
   const output = await runHiddenCommand(
@@ -104,18 +89,15 @@ Deno.test("spawnHiddenProcess kill stops a running child", async () => {
 Deno.test("spawnHiddenProcess kill terminates the process tree on Windows", async () => {
   if (Deno.build.os !== "windows") return;
   const directory = await Deno.makeTempDir();
-  // A .ps1 shim runs a child synchronously, so the spawned child is PowerShell and
-  // its descendant process must not survive kill.
-  const script = join(directory, "long-running.ps1");
-  const denoPath = Deno.execPath().replaceAll("\\", "/").replaceAll("'", "''");
+  // cmd.exe stays alive while its deno descendant runs, so the spawned child is
+  // an intermediary process and its descendant must not survive kill.
+  const script = join(directory, "long-running.js");
   await Deno.writeTextFile(
     script,
-    [
-      `& '${denoPath}' eval "console.log('DESCENDANT_PID=' + Deno.pid); setInterval(() => {}, 1000)"`,
-    ].join("\n"),
+    "console.log('DESCENDANT_PID=' + Deno.pid); setInterval(() => {}, 1000);\n",
   );
 
-  const child = spawnHiddenProcess(script, [], directory);
+  const child = spawnHiddenProcess("cmd.exe", ["/c", Deno.execPath(), "run", script], directory);
   let childPid = 0;
   for (let i = 0; i < 200 && childPid === 0; i++) {
     const output = await readProcessOutputTail(child.outputFile);

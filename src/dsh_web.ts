@@ -24,10 +24,6 @@ export function extractDshWebLaunchTokenCandidates(
   return candidates;
 }
 
-export function latestDshWebLaunchTokenUrl(output: string): string | undefined {
-  return extractDshWebLaunchTokenCandidates(output).at(-1)?.url;
-}
-
 function dshWebLaunchTokenCandidateFromLine(
   line: string,
 ): DshWebLaunchTokenCandidate | undefined {
