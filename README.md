@@ -16,6 +16,11 @@
 DSH Desktop 是 DSH Web 的跨平台桌面入口。它通过系统 OpenSSH 建立回环端口转发，在同一窗口中打开远端
 DSH Web。
 
+> [!NOTE]
+> 本地模式请使用官方客户端：<https://www.deepseek.com/harness/>。
+>
+> 本项目仅补充官方客户端不支持的桌面客户端形态与远程会话能力，不提供本地 DSH 启动能力。
+
 ## 功能
 
 - **远程连接**：复用用户的 OpenSSH 配置、密钥、`ssh-agent`、`ProxyJump` 和主机密钥策略。
