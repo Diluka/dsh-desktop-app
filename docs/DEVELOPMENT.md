@@ -145,7 +145,7 @@ import 进入 TypeScript；未来新增 `screen`、Docker、Kubernetes 等 POSIX
 
 ## 开发环境
 
-CI 使用 Deno `2.9.5`。`deno desktop`、命名权限集及 CEF/WebView2 后端仍属于实验性契约。
+CI 使用 Deno `2.9.7`。`deno desktop`、命名权限集及 CEF/WebView2 后端仍属于实验性契约。
 
 升级 Deno 时需要重新验证构建产物和真实 GUI 行为。
 

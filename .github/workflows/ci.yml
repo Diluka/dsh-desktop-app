@@ -42,7 +42,7 @@ jobs:
       - name: Install Deno
         uses: denoland/setup-deno@v2
         with:
-          deno-version: v2.9.5
+          deno-version: v2.9.7
 
       - name: Show tool versions
         run: |
@@ -99,7 +99,7 @@ jobs:
       - name: Install Deno
         uses: denoland/setup-deno@v2
         with:
-          deno-version: v2.9.5
+          deno-version: v2.9.7
 
       - name: Build native desktop distribution
         run: deno task ${{ matrix.package_task }}
