@@ -74,13 +74,28 @@ token、secret、Authorization、Bearer 凭据和私钥标记进行脱敏，并�
 平台创建日志文件时使用 `0600`；Windows 文件继承日志目录的访问控制列表。
 
 远端 token 探针通过 `ssh -T -o BatchMode=yes -o ConnectTimeout=12 -- <Host> sh -s` 投递只读 POSIX
-shell 脚本，不在远端写临时文件。当前默认日志来源包括当前用户可访问的 tmux pane scrollback、近期
-`journalctl --user`、近期系统 `journalctl`，以及 `/proc/<pid>/fd/{1,2}` 指向普通文件且命令行类似
-`dsh web` 的 stdout/stderr 日志。探针只提取 `dsh web:` 打印 URL 中的 `token` 参数；不记录 token
-值，也不校验 token 格式。默认 POSIX 探针维护在 `src/remote_dsh_token_probe_posix.sh` 并以 text
-import 进入 TypeScript；未来新增 `screen`、Docker、Kubernetes 等 POSIX
-日志来源时直接扩展该脚本。新增 Windows remote 或其他远端执行环境时增加
-`RemoteDshTokenProbeProgram`。
+shell 脚本，不在远端写临时文件。当前默认日志来源包括：
+
+- `dsh-simple-restart` 和 `dshmarket` 重启后写入的 `dsh-simple-restart-*.{out,err}.log`、
+  `dsh-market-restart-*.{out,err}.log`。按 Node 的 POSIX `tmpdir()` 优先级使用远端 SSH 环境的
+  `TMPDIR`、`TMP`、`TEMP`，均未设置时使用 `/tmp`，并额外尝试 `/tmp`；每个目录只读取最新 20
+  个匹配日志，不递归扫描。来源标记为 `plugin-restart-log`。
+- 当前用户可访问的 tmux pane scrollback、近期 `journalctl --user` 和近期系统 `journalctl`。
+- `/proc/<pid>/fd/{1,2}` 指向普通文件、且命令行类似 DSH Web 的 stdout/stderr 日志；支持 PATH
+  `dsh`（含前置 profile 参数）、已安装包入口、官方 desktop CLI carrier 和源码 CLI 入口。
+
+临时日志按当前 SSH 用户所有、可读且不是符号链接的普通文件过滤后，再选最新 20 个；进程 FD 来源保留
+读取可访问普通日志的行为，不要求服务日志也归 SSH 用户所有。两种文件来源各取头尾最多 64 KiB；不会读取
+pipe、socket、TTY 或恢复配置 JSON。头部保留尚未滚动到日志末尾的启动行。两个插件的普通 Web
+重启路径都通过 detached helper 启动 replacement，并把 stdout/stderr 改写到临时日志，因此不能只依赖
+原终端、父子进程关系或旧 token。这里的自动恢复在连接/重新连接时发生，不会主动重启 DSH。
+
+探针只提取 `dsh web:` 打印 URL 中的 `token` 参数；不记录 token 值，也不校验 token 格式。
+每个候选仍须经当前 SSH 隧道验证后才能保存。默认 POSIX 探针维护在
+`src/remote_dsh_token_probe_posix.sh` 并以 text import 进入 TypeScript；未来新增 `screen`、Docker、
+Kubernetes 等 POSIX 日志来源时直接扩展该脚本。新增 Windows remote 或其他远端执行环境时增加
+`RemoteDshTokenProbeProgram`。若 DSH 使用与 SSH 不同的自定义临时目录，Linux 上可通过仍在运行的 DSH
+进程 FD 找到日志；没有 `/proc` 且该目录不在上述来源内时，仍需手动输入 token。
 
 常见排障入口：
 

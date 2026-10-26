@@ -116,6 +116,20 @@ tail -f "$(ls -t "$log_dir"/dsh-desktop-*.jsonl | head -n 1)"
 预期日志依次包含 `ssh.tunnel_starting`、`ssh.tunnel_ready`，关闭时包含 `ssh.tunnel_exited` 且
 `stopRequested` 为 `true`。
 
+### 2a. 插件重启后恢复 token
+
+仅在可重启的测试实例操作，不要为验收中断工作中的 DSH：
+
+1. 分别通过 `dsh-simple-restart` 和 `dshmarket` 的普通 Web 重启入口重启测试 DSH，等待其重新就绪。
+2. 桌面服务器配置保留重启前的 token（或清空），再从选择页连接。
+3. 在不依赖原 tmux pane 的情况下，确认应用从 replacement 的临时日志恢复新 token 并加载 DSH Web。
+4. 再次连接，确认新 token 已保存；应用 JSONL 仅记录 `sourceId: plugin-restart-log` 或
+   `proc-fd-log`，没有 token 或完整启动 URL。
+5. 将日志轮转/移走或构造全部过期候选后重试，确认只提示手动输入 token，不保存未验证候选。
+
+测试临时日志也含凭据，不要原样外发。该场景验证连接/重新连接时的恢复，不承诺已打开页面在重启空窗中自动
+重新登录。官方 desktop profile 可能禁用市场的自行重启；此处测试的是通过 SSH 连接的普通 DSH Web。
+
 ### 3. 自定义远端端口
 
 1. 把测试服务器 DSH Web 改到非 `3080` 端口，或使用另一台已配置实例。
